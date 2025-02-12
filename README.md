@@ -10,12 +10,26 @@ by *Joseph Matthew Rich, Laura Luebbert, Delaney Sullivan, Reginaldo Rosa, Samue
 
 ## Getting Started
 
-To run the code in this repository, follow these steps (requires **conda**):
+To run the code in this repository, follow these steps:
 
 ```sh
 git clone https://github.com/pachterlab/RLSRWP_2025.git
 cd RLSRWP_2025
+```
+
+We recommend using an environment manager such as conda. Some additional non-python packages must be installed for full functionality. If using conda (recommended), simply run the following:
+
+```sh
 conda create -f environment.yml
+conda activate RLSRWP_2025
+```
+
+Otherwise, install these packages manually as-needed (see environment.yml for the list of packages and recommended versions).
+
+Once the environment is set up, install the repository as a package.
+
+```sh
+pip install -e .
 ```
 
 ---
@@ -35,6 +49,13 @@ Jupyter notebooks to reproduce each main and supplemental figure, named accordin
   - `S3.ipynb`
   - `S4.ipynb`
   - `S5.ipynb`
+
+### 🛠 RLSRWP_2025
+Core functions used within the notebooks
+- `RLSRWP_2025/`
+    - `logger_utils.py`
+    - `seq_utils.py`
+    - `visualization_utils.py`
 
 ### 🛠 Scripts  
 Python scripts called within some notebooks:

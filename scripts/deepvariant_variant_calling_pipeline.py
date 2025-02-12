@@ -1,0 +1,242 @@
+import os
+import subprocess
+
+import pandas as pd
+import pysam
+varseek_directory = os.path.dirname(os.path.abspath(""))
+
+from varseek.utils import (
+    add_vcf_info_to_cosmic_tsv,
+    calculate_metrics,
+    calculate_sensitivity_specificity,
+    create_venn_diagram,
+    draw_confusion_matrix,
+    merge_gatk_and_cosmic,
+    safe_literal_eval,
+    vcf_to_dataframe,
+    is_program_installed
+)
+
+run_benchmarking = False  #!!! change to True when finished debugging the variant calling pipeline
+
+### ARGUMENTS ###
+threads = 4
+read_length = 150
+mutation_source = "cdna"  # "cdna", "cds"
+
+# Paths
+out_dir_notebook = os.path.join(varseek_directory, "data", "simulated_data_output")  #* make sure this matches notebook 2
+reference_out_dir = os.path.join(varseek_directory, "data", "reference")
+synthetic_read_fastq = os.path.join(out_dir_notebook, "synthetic_reads.fq")
+unique_mcrs_df_path = os.path.join(out_dir_notebook, "unique_mcrs_df.csv")
+deepvariant_output_dir = os.path.join(varseek_directory, "data", "deepvariant_simulated_data_dir")  #!!! change for each run
+
+cosmic_tsv = os.path.join(reference_out_dir, "cosmic", "CancerMutationCensus_AllData_Tsv_v100_GRCh37", "CancerMutationCensus_AllData_v100_GRCh37.tsv")
+cosmic_cdna_info_csv = os.path.join(reference_out_dir, "cosmic", "CancerMutationCensus_AllData_Tsv_v100_GRCh37", "CancerMutationCensus_AllData_v100_GRCh37_mutation_workflow_with_cdna.csv")
+
+# if these paths don't exist then they will be created
+reference_genome_fasta = os.path.join(reference_out_dir, "ensembl_grch37_release93", "Homo_sapiens.GRCh37.dna.primary_assembly.fa")
+reference_genome_gtf = os.path.join(reference_out_dir, "ensembl_grch37_release93", "Homo_sapiens.GRCh37.87.gtf")
+ensembl_germline_vcf = os.path.join(reference_out_dir, "ensembl_grch37_release93", "homo_sapiens.vcf")
+star_genome_dir = os.path.join(reference_out_dir, "ensembl_grch37_release93", "star_reference")
+star_alignment_dir = os.path.join(out_dir_notebook, "star_alignment")
+
+# Software package paths
+STAR = "star"  # /home/jrich/opt/STAR-2.7.11b/bin/Linux_x86_64/STAR
+### ARGUMENTS ###
+
+deepvariant_benchmarking_output = os.path.join(deepvariant_output_dir, "benchmarking")
+deepvariant_model = os.path.join(deepvariant_output_dir, "model")
+
+os.makedirs(star_genome_dir, exist_ok=True)
+os.makedirs(star_alignment_dir, exist_ok=True)
+os.makedirs(deepvariant_output_dir, exist_ok=True)
+os.makedirs(deepvariant_benchmarking_output, exist_ok=True)
+os.makedirs(deepvariant_model, exist_ok=True)
+os.chdir(deepvariant_output_dir)
+
+out_file_name_prefix = f"{star_alignment_dir}/sample_"
+aligned_and_unmapped_bam = f"{out_file_name_prefix}Aligned.sortedByCoord.out.bam"
+read_length_minus_one = read_length - 1
+# star_tarball = os.path.join(opt_dir, "2.7.11b.tar.gz")
+
+deepvariant_vcf = os.path.join(deepvariant_output_dir, "results/variants/genome.vcf.gz")
+
+model_checkpoint_data_path = os.path.join(deepvariant_model, "model.ckpt.data-00000-of-00001")
+model_checkpoint_index_path = os.path.join(deepvariant_model, "model.ckpt.index")
+model_checkpoint_meta_path = os.path.join(deepvariant_model, "model.ckpt.meta")
+
+intermediate_results = os.path.join(deepvariant_output_dir, "intermediate_results_dir")
+os.makedirs(intermediate_results, exist_ok=True)
+
+
+#* Download software and reference files
+if not is_program_installed("docker"):
+    raise RuntimeError("Docker is not installed. Please install Docker to proceed.")
+if not os.path.exists(reference_genome_fasta):
+    reference_genome_fasta_url = "https://ftp.ensembl.org/pub/grch37/release-93/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.dna.primary_assembly.fa.gz"
+    download_reference_genome_fasta_command = ["wget", "-O", f"{reference_genome_fasta}.gz", reference_genome_fasta_url]
+    unzip_reference_genome_fasta_command = ["gunzip", "-O", f"{reference_genome_fasta}.gz"]
+
+    subprocess.run(download_reference_genome_fasta_command, check=True)
+    subprocess.run(unzip_reference_genome_fasta_command, check=True)
+
+if not os.path.exists(reference_genome_gtf):
+    reference_genome_gtf_url = "https://ftp.ensembl.org/pub/grch37/release-93/gtf/homo_sapiens/Homo_sapiens.GRCh37.87.gtf.gz"
+    download_reference_genome_gtf_command = ["wget", "-O", f"{reference_genome_gtf}.gz", reference_genome_gtf_url]
+    unzip_reference_genome_gtf_command = ["gunzip", "-O", f"{reference_genome_gtf}.gz"]
+
+    subprocess.run(download_reference_genome_gtf_command, check=True)
+    subprocess.run(unzip_reference_genome_gtf_command, check=True)
+
+# if not os.path.exists(STAR):
+#     subprocess.run(["wget", "-O", star_tarball, "https://github.com/alexdobin/STAR/archive/2.7.11b.tar.gz"], check=True)
+#     subprocess.run(["tar", "-xzf", star_tarball, "-C", opt_dir], check=True)
+
+if not os.path.exists(model_checkpoint_data_path):
+    subprocess.run(f"curl https://storage.googleapis.com/deepvariant/models/DeepVariant/1.4.0/DeepVariant-inception_v3-1.4.0+data-rnaseq_standard/model.ckpt.data-00000-of-00001 > {model_checkpoint_data_path}", check=True, shell=True)
+
+if not os.path.exists(model_checkpoint_index_path):
+    subprocess.run(f"curl https://storage.googleapis.com/deepvariant/models/DeepVariant/1.4.0/DeepVariant-inception_v3-1.4.0+data-rnaseq_standard/model.ckpt.index > {model_checkpoint_index_path}", check=True, shell=True)
+
+if not os.path.exists(model_checkpoint_meta_path):
+    subprocess.run(f"curl https://storage.googleapis.com/deepvariant/models/DeepVariant/1.4.0/DeepVariant-inception_v3-1.4.0+data-rnaseq_standard/model.ckpt.meta > {model_checkpoint_meta_path}", check=True, shell=True)
+
+#* Genome alignment with STAR
+star_build_command = [
+    STAR,
+    "--runThreadN", str(threads),
+    "--runMode", "genomeGenerate",
+    "--genomeDir", star_genome_dir,
+    "--genomeFastaFiles", reference_genome_fasta,
+    "--sjdbGTFfile", reference_genome_gtf,
+    "--sjdbOverhang", str(read_length_minus_one),
+]
+
+if not os.listdir(star_genome_dir):
+    subprocess.run(star_build_command, check=True)
+
+star_align_command = [
+    STAR,
+    "--runThreadN", str(threads),
+    "--genomeDir", star_genome_dir,
+    "--readFilesIn", synthetic_read_fastq,
+    "--sjdbOverhang", str(read_length_minus_one),
+    "--outFileNamePrefix", out_file_name_prefix,
+    "--outSAMtype", "BAM", "SortedByCoordinate",
+    "--outSAMunmapped", "Within",
+    "--outSAMmapqUnique", "60",
+    "--twopassMode", "Basic"
+]
+
+if not os.path.exists(aligned_and_unmapped_bam):
+    subprocess.run(star_align_command, check=True)
+
+#* Index reference genome
+if not os.path.exists(f"{reference_genome_fasta}.fai"):
+    _ = pysam.faidx(reference_genome_fasta)
+
+#* Index BAM file
+bam_index_file = f"{aligned_and_unmapped_bam}.bai"
+if not os.path.exists(bam_index_file):
+    _ = pysam.index(aligned_and_unmapped_bam)
+
+#* deepvariant variant calling
+BIN_VERSION="1.4.0"
+
+deepvariant_command = [
+    "sudo", "docker", "run",
+    "-v", f"{os.getcwd()}:{os.getcwd()}",
+    "-w", os.getcwd(),
+    f"google/deepvariant:{BIN_VERSION}",
+    "run_deepvariant",
+    "--model_type=WES",
+    "--customized_model=model/model.ckpt",
+    f"--ref={reference_genome_fasta}",
+    f"--reads={aligned_and_unmapped_bam}",
+    f"--output_vcf={deepvariant_vcf}",
+    f"--num_shards={os.cpu_count()}",
+    "--make_examples_extra_args=split_skip_reads=true,channel_list='BASE_CHANNELS'",
+    "--intermediate_results_dir", intermediate_results
+]
+subprocess.run(deepvariant_command, check=True)
+
+if not run_benchmarking:
+    print("Skipping benchmarking")
+    exit()
+
+#* Merging into COSMIC
+# Convert VCF to DataFrame
+df_deepvariant = vcf_to_dataframe(deepvariant_vcf, additional_columns = True)
+df_deepvariant = df_deepvariant[['CHROM', 'POS', 'ID', 'REF', 'ALT', 'INFO_DP']].rename(columns={'INFO_DP': 'DP_deepvariant'})
+
+cosmic_df = add_vcf_info_to_cosmic_tsv(cosmic_tsv=cosmic_tsv, reference_genome_fasta=reference_genome_fasta, cosmic_df_out = None, cosmic_cdna_info_csv = cosmic_cdna_info_csv, mutation_source = "cdna")
+
+# load in unique_mcrs_df
+unique_mcrs_df = pd.read_csv(unique_mcrs_df_path)
+unique_mcrs_df["header_list"] = unique_mcrs_df["header_list"].apply(safe_literal_eval)
+
+deepvariant_cosmic_merged_df = merge_gatk_and_cosmic(df_deepvariant, cosmic_df, exact_position=False)  # change exact_position to True to merge based on exact position as before
+id_set_deepvariant = set(deepvariant_cosmic_merged_df['ID'])
+
+# Merge DP values into unique_mcrs_df
+# Step 1: Remove rows with NaN values in 'ID' column
+deepvariant_cosmic_merged_df_for_merging = deepvariant_cosmic_merged_df[['ID', 'DP_deepvariant']].dropna(subset=['ID']).rename(columns={'ID': 'mcrs_header'})
+
+# Step 2: Drop duplicates from 'ID' column
+deepvariant_cosmic_merged_df_for_merging = deepvariant_cosmic_merged_df_for_merging.drop_duplicates(subset=['mcrs_header'])
+
+# Step 3: Left merge with unique_mcrs_df
+unique_mcrs_df = pd.merge(
+    unique_mcrs_df,               # Left DataFrame
+    deepvariant_cosmic_merged_df_for_merging,         # Right DataFrame
+    on='mcrs_header',
+    how='left'
+)
+
+number_of_mutations_deepvariant = len(df_deepvariant.drop_duplicates(subset=['CHROM', 'POS', 'REF', 'ALT']))
+number_of_cosmic_mutations_deepvariant = len(deepvariant_cosmic_merged_df.drop_duplicates(subset=['CHROM', 'POS', 'REF', 'ALT']))
+
+# unique_mcrs_df['header_list'] each contains a list of strings. I would like to make a new column unique_mcrs_df['mutation_detected_deepvariant'] where each row is True if any value from the list unique_mcrs_df['mcrs_header'] is in the set id_set_mut  # keep in mind that my IDs are the mutation headers (ENST...), NOT mcrs headers or mcrs ids
+unique_mcrs_df['mutation_detected_deepvariant'] = unique_mcrs_df['header_list'].apply(
+    lambda header_list: any(header in id_set_deepvariant for header in header_list)
+)
+
+# calculate expression error
+unique_mcrs_df['mutation_expression_prediction_error'] = unique_mcrs_df['DP_deepvariant'] - unique_mcrs_df['number_of_reads_mutant']  # positive means overpredicted, negative means underpredicted
+
+unique_mcrs_df['TP'] = (unique_mcrs_df['included_in_synthetic_reads_mutant'] & unique_mcrs_df['mutation_detected_deepvariant'])
+unique_mcrs_df['FP'] = (~unique_mcrs_df['included_in_synthetic_reads_mutant'] & unique_mcrs_df['mutation_detected_deepvariant'])
+unique_mcrs_df['FN'] = (unique_mcrs_df['included_in_synthetic_reads_mutant'] & ~unique_mcrs_df['mutation_detected_deepvariant'])
+unique_mcrs_df['TN'] = (~unique_mcrs_df['included_in_synthetic_reads_mutant'] & ~unique_mcrs_df['mutation_detected_deepvariant'])
+
+deepvariant_stat_path = f"{deepvariant_benchmarking_output}/reference_metrics_deepvariant.txt"
+metric_dictionary_reference = calculate_metrics(unique_mcrs_df, header_name = "mcrs_header", check_assertions = False, out = deepvariant_stat_path)
+draw_confusion_matrix(metric_dictionary_reference)
+
+true_set = set(unique_mcrs_df.loc[unique_mcrs_df['included_in_synthetic_reads_mutant'], 'mcrs_header'])
+positive_set = set(unique_mcrs_df.loc[unique_mcrs_df['mutation_detected_deepvariant'], 'mcrs_header'])
+create_venn_diagram(true_set, positive_set, TN = metric_dictionary_reference['TN'], out_path = f"{deepvariant_benchmarking_output}/venn_diagram_reference_cosmic_only_deepvariant.png")
+
+noncosmic_mutation_id_set = {f'deepvariant_fp_{i}' for i in range(1, number_of_mutations_deepvariant - number_of_cosmic_mutations_deepvariant + 1)}
+
+positive_set_including_noncosmic_mutations = positive_set.union(noncosmic_mutation_id_set)
+false_positive_set = set(unique_mcrs_df.loc[unique_mcrs_df['FP'], 'mcrs_header'])
+false_positive_set_including_noncosmic_mutations = false_positive_set.union(noncosmic_mutation_id_set)
+
+FP_including_noncosmic = len(false_positive_set_including_noncosmic_mutations)
+accuracy, sensitivity, specificity = calculate_sensitivity_specificity(metric_dictionary_reference['TP'], metric_dictionary_reference['TN'], FP_including_noncosmic, metric_dictionary_reference['FN'])
+
+with open(deepvariant_stat_path, "a", encoding="utf-8") as file:
+    file.write(f"FP including non-cosmic: {FP_including_noncosmic}\n")
+    file.write(f"accuracy including non-cosmic: {accuracy}\n")
+    file.write(f"specificity including non-cosmic: {specificity}\n")
+
+
+
+create_venn_diagram(true_set, positive_set_including_noncosmic_mutations, TN = metric_dictionary_reference['TN'], out_path = f"{deepvariant_benchmarking_output}/venn_diagram_reference_including_noncosmics_deepvariant.png")
+
+unique_mcrs_df.rename(columns={'TP': 'TP_deepvariant', 'FP': 'FP_deepvariant', 'TN': 'TN_deepvariant', 'FN': 'FN_deepvariant', 'mutation_expression_prediction_error': 'mutation_expression_prediction_error_deepvariant'}, inplace=True)
+
+unique_mcrs_df_out = unique_mcrs_df_path  # unique_mcrs_df_path.replace(".csv", "_with_deepvariant.csv")
+unique_mcrs_df.to_csv(unique_mcrs_df_out, index=False)
