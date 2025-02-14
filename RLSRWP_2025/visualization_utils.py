@@ -789,9 +789,9 @@ def create_stratified_metric_bar_plot_updated(unique_mcrs_df, x_stratification, 
     unique_mcrs_df = unique_mcrs_df.loc[:, columns_to_keep_for_function].copy()  # make a copy to avoid modifying the original DataFrame
     # unique_mcrs_df = unique_mcrs_df.copy()  # make a copy to avoid modifying the original DataFrame
 
-    if x_stratification == "mcrs_mutation_type":
-        # remove any values in "mcrs_mutation_type" equal to "mixed"
-        unique_mcrs_df = unique_mcrs_df[unique_mcrs_df["mcrs_mutation_type"] != "mixed"]
+    if x_stratification == "vcrs_mutation_type":
+        # remove any values in "vcrs_mutation_type" equal to "mixed"
+        unique_mcrs_df = unique_mcrs_df[unique_mcrs_df["vcrs_mutation_type"] != "mixed"]
 
     if "expression_error" in y_metric and not filter_real_negatives and x_stratification not in {"number_of_reads_mutant"}:
         print("Warning: filtering real negatives is recommended when using expression error as a primary metric and stratifying by something other than number_of_reads_mutant, but this setting is not currently enabled. Recommended: filter_real_negatives = True.")

@@ -181,23 +181,23 @@ id_set_deepvariant = set(deepvariant_cosmic_merged_df['ID'])
 
 # Merge DP values into unique_mcrs_df
 # Step 1: Remove rows with NaN values in 'ID' column
-deepvariant_cosmic_merged_df_for_merging = deepvariant_cosmic_merged_df[['ID', 'DP_deepvariant']].dropna(subset=['ID']).rename(columns={'ID': 'mcrs_header'})
+deepvariant_cosmic_merged_df_for_merging = deepvariant_cosmic_merged_df[['ID', 'DP_deepvariant']].dropna(subset=['ID']).rename(columns={'ID': 'vcrs_header'})
 
 # Step 2: Drop duplicates from 'ID' column
-deepvariant_cosmic_merged_df_for_merging = deepvariant_cosmic_merged_df_for_merging.drop_duplicates(subset=['mcrs_header'])
+deepvariant_cosmic_merged_df_for_merging = deepvariant_cosmic_merged_df_for_merging.drop_duplicates(subset=['vcrs_header'])
 
 # Step 3: Left merge with unique_mcrs_df
 unique_mcrs_df = pd.merge(
     unique_mcrs_df,               # Left DataFrame
     deepvariant_cosmic_merged_df_for_merging,         # Right DataFrame
-    on='mcrs_header',
+    on='vcrs_header',
     how='left'
 )
 
 number_of_mutations_deepvariant = len(df_deepvariant.drop_duplicates(subset=['CHROM', 'POS', 'REF', 'ALT']))
 number_of_cosmic_mutations_deepvariant = len(deepvariant_cosmic_merged_df.drop_duplicates(subset=['CHROM', 'POS', 'REF', 'ALT']))
 
-# unique_mcrs_df['header_list'] each contains a list of strings. I would like to make a new column unique_mcrs_df['mutation_detected_deepvariant'] where each row is True if any value from the list unique_mcrs_df['mcrs_header'] is in the set id_set_mut  # keep in mind that my IDs are the mutation headers (ENST...), NOT mcrs headers or mcrs ids
+# unique_mcrs_df['header_list'] each contains a list of strings. I would like to make a new column unique_mcrs_df['mutation_detected_deepvariant'] where each row is True if any value from the list unique_mcrs_df['vcrs_header'] is in the set id_set_mut  # keep in mind that my IDs are the mutation headers (ENST...), NOT mcrs headers or mcrs ids
 unique_mcrs_df['mutation_detected_deepvariant'] = unique_mcrs_df['header_list'].apply(
     lambda header_list: any(header in id_set_deepvariant for header in header_list)
 )
@@ -211,17 +211,17 @@ unique_mcrs_df['FN'] = (unique_mcrs_df['included_in_synthetic_reads_mutant'] & ~
 unique_mcrs_df['TN'] = (~unique_mcrs_df['included_in_synthetic_reads_mutant'] & ~unique_mcrs_df['mutation_detected_deepvariant'])
 
 deepvariant_stat_path = f"{deepvariant_benchmarking_output}/reference_metrics_deepvariant.txt"
-metric_dictionary_reference = calculate_metrics(unique_mcrs_df, header_name = "mcrs_header", check_assertions = False, out = deepvariant_stat_path)
+metric_dictionary_reference = calculate_metrics(unique_mcrs_df, header_name = "vcrs_header", check_assertions = False, out = deepvariant_stat_path)
 draw_confusion_matrix(metric_dictionary_reference)
 
-true_set = set(unique_mcrs_df.loc[unique_mcrs_df['included_in_synthetic_reads_mutant'], 'mcrs_header'])
-positive_set = set(unique_mcrs_df.loc[unique_mcrs_df['mutation_detected_deepvariant'], 'mcrs_header'])
+true_set = set(unique_mcrs_df.loc[unique_mcrs_df['included_in_synthetic_reads_mutant'], 'vcrs_header'])
+positive_set = set(unique_mcrs_df.loc[unique_mcrs_df['mutation_detected_deepvariant'], 'vcrs_header'])
 create_venn_diagram(true_set, positive_set, TN = metric_dictionary_reference['TN'], out_path = f"{deepvariant_benchmarking_output}/venn_diagram_reference_cosmic_only_deepvariant.png")
 
 noncosmic_mutation_id_set = {f'deepvariant_fp_{i}' for i in range(1, number_of_mutations_deepvariant - number_of_cosmic_mutations_deepvariant + 1)}
 
 positive_set_including_noncosmic_mutations = positive_set.union(noncosmic_mutation_id_set)
-false_positive_set = set(unique_mcrs_df.loc[unique_mcrs_df['FP'], 'mcrs_header'])
+false_positive_set = set(unique_mcrs_df.loc[unique_mcrs_df['FP'], 'vcrs_header'])
 false_positive_set_including_noncosmic_mutations = false_positive_set.union(noncosmic_mutation_id_set)
 
 FP_including_noncosmic = len(false_positive_set_including_noncosmic_mutations)
