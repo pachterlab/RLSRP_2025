@@ -50,9 +50,9 @@ for name, path in {"STAR": STAR, "java": java, "picard_jar": picard_jar, "gatk":
     elif not os.access(name, os.X_OK):
         raise PermissionError(f"{name} is not executable.")
 
-java_home = os.path.dirname(os.path.dirname(java))
+if not os.environ.get('JAVA_HOME'):
+    os.environ['JAVA_HOME'] = os.path.dirname(os.path.dirname(java))
 
-os.environ['JAVA_HOME'] = java_home
 os.environ['PATH'] = f"{os.environ['JAVA_HOME']}/bin:" + os.environ['PATH']
 
 os.makedirs(star_genome_dir, exist_ok=True)
@@ -142,6 +142,7 @@ create_sequence_dict_command = [
     "-O", reference_genome_dict
 ]
 
+#!!! Vera had issues here until passing in aligned_and_unmapped_bam - and even just generally in the later steps
 merge_bam_alignment_command = [
     java, "-jar", picard_jar, "MergeBamAlignment",
     "--ALIGNED_BAM", aligned_and_unmapped_bam,

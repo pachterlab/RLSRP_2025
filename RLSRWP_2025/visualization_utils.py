@@ -367,7 +367,7 @@ def plot_overall_metrics(metric_dict_collection, primary_metrics=("accuracy", "s
         plt.savefig(output_file)
     if show:
         plt.show()
-        plt.close()
+    plt.close()
 
 
 def calculate_grouped_metric(grouped_df, y_metric, tool):
@@ -586,7 +586,7 @@ def create_stratified_metric_line_plot(unique_mcrs_df, x_stratification, y_metri
         plt.savefig(output_file)
     if show:
         plt.show()
-        plt.close()
+    plt.close()
 
 
 def create_benchmarking_legend(tools, outfile=None, show=True):
@@ -609,7 +609,7 @@ def create_benchmarking_legend(tools, outfile=None, show=True):
         plt.savefig(outfile, bbox_inches="tight")
     if show:
         plt.show()
-        plt.close()
+    plt.close()
 
 
 def write_p_values_to_file(tool_to_p_value_dict, out_file):
@@ -789,9 +789,9 @@ def create_stratified_metric_bar_plot_updated(unique_mcrs_df, x_stratification, 
     unique_mcrs_df = unique_mcrs_df.loc[:, columns_to_keep_for_function].copy()  # make a copy to avoid modifying the original DataFrame
     # unique_mcrs_df = unique_mcrs_df.copy()  # make a copy to avoid modifying the original DataFrame
 
-    if x_stratification == "vcrs_mutation_type":
-        # remove any values in "vcrs_mutation_type" equal to "mixed"
-        unique_mcrs_df = unique_mcrs_df[unique_mcrs_df["vcrs_mutation_type"] != "mixed"]
+    if x_stratification == "vcrs_variant_type":
+        # remove any values in "vcrs_variant_type" equal to "mixed"
+        unique_mcrs_df = unique_mcrs_df[unique_mcrs_df["vcrs_variant_type"] != "mixed"]
 
     if "expression_error" in y_metric and not filter_real_negatives and x_stratification not in {"number_of_reads_mutant"}:
         print("Warning: filtering real negatives is recommended when using expression error as a primary metric and stratifying by something other than number_of_reads_mutant, but this setting is not currently enabled. Recommended: filter_real_negatives = True.")
@@ -964,7 +964,7 @@ def create_stratified_metric_bar_plot_updated(unique_mcrs_df, x_stratification, 
         plt.savefig(output_file)
     if show:
         plt.show()
-        plt.close()
+    plt.close()
 
 
 def plot_frequency_histogram(unique_mcrs_df, column_base, tools, fraction=False, output_file=None, show=True):
@@ -1008,4 +1008,4 @@ def plot_frequency_histogram(unique_mcrs_df, column_base, tools, fraction=False,
         plt.savefig(output_file)
     if show:
         plt.show()
-        plt.close()
+    plt.close()

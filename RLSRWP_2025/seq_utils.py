@@ -245,21 +245,21 @@ def predict_cancer_type(
 
 
 
-def add_mutation_type_gatk(df):
+def add_variant_type_gatk(df):
     # Define the conditions
     conditions = [(df["REF"].str.len() > 1) & (df["ALT"].str.len() == 1), (df["REF"].str.len() == 1) & (df["ALT"].str.len() > 1), (df["REF"].str.len() == 1) & (df["ALT"].str.len() == 1), (df["REF"].str.len() > 1) & (df["ALT"].str.len() > 1)]  # Deletion  # Insertion  # Substitution  # Delins
 
     # Define the corresponding mutation types
-    mutation_types = ["deletion", "insertion", "substitution", "delins"]
+    variant_types = ["deletion", "insertion", "substitution", "delins"]
 
     # Apply the conditions and assign the values to the new column
-    df["mutation_type"] = np.select(conditions, mutation_types, default="unknown")
+    df["variant_type"] = np.select(conditions, variant_types, default="unknown")
 
     # For 'deletion', add 'deleted_bases' column with REF[1:]
-    df.loc[df["mutation_type"] == "deletion", "deleted_bases"] = df["REF"].str[1:]
+    df.loc[df["variant_type"] == "deletion", "deleted_bases"] = df["REF"].str[1:]
 
     # For 'insertion', add 'inserted_bases' column with ALT[1:]
-    df.loc[df["mutation_type"] == "insertion", "inserted_bases"] = df["ALT"].str[1:]
+    df.loc[df["variant_type"] == "insertion", "inserted_bases"] = df["ALT"].str[1:]
 
     return df
 
@@ -274,24 +274,24 @@ def merge_gatk_and_cosmic(df_mut, cosmic_df, exact_position=False):
 
         merged_df = merged_df.drop(columns=["ID_df1", "POS_df1"]).rename(columns={"ID_df2": "ID", "POS_df2": "POS"})
     else:
-        if "mutation_type" not in df_mut.columns:
-            df_mut = add_mutation_type_gatk(df_mut)
-        if "mutation_type" not in cosmic_df.columns:
-            cosmic_df = add_mutation_type_gatk(cosmic_df)
+        if "variant_type" not in df_mut.columns:
+            df_mut = add_variant_type_gatk(df_mut)
+        if "variant_type" not in cosmic_df.columns:
+            cosmic_df = add_variant_type_gatk(cosmic_df)
 
         # Split `df_mut` and `cosmic_df` by mutation type
-        sub_delins_mut = df_mut[df_mut["mutation_type"].isin(["substitution", "delins"])]
-        del_mut = df_mut[df_mut["mutation_type"] == "deletion"]
-        ins_mut = df_mut[df_mut["mutation_type"] == "insertion"]
+        sub_delins_mut = df_mut[df_mut["variant_type"].isin(["substitution", "delins"])]
+        del_mut = df_mut[df_mut["variant_type"] == "deletion"]
+        ins_mut = df_mut[df_mut["variant_type"] == "insertion"]
 
-        sub_delins_cosmic = cosmic_df[cosmic_df["mutation_type"].isin(["substitution", "delins"])]
-        del_cosmic = cosmic_df[cosmic_df["mutation_type"] == "deletion"]
-        ins_cosmic = cosmic_df[cosmic_df["mutation_type"] == "insertion"]
+        sub_delins_cosmic = cosmic_df[cosmic_df["variant_type"].isin(["substitution", "delins"])]
+        del_cosmic = cosmic_df[cosmic_df["variant_type"] == "deletion"]
+        ins_cosmic = cosmic_df[cosmic_df["variant_type"] == "insertion"]
 
         # 1. Merge substitution and delins
         sub_delins_merged = pd.merge(sub_delins_mut, sub_delins_cosmic, on=["CHROM", "POS", "REF", "ALT"], how="left", suffixes=("_df1", "_df2"))
 
-        sub_delins_merged = sub_delins_merged.drop(columns=["ID_df1", "mutation_type_df1", "mutation_type_df2", "deleted_bases_df1", "deleted_bases_df2", "inserted_bases_df1", "inserted_bases_df2"]).rename(columns={"ID_df2": "ID"})
+        sub_delins_merged = sub_delins_merged.drop(columns=["ID_df1", "variant_type_df1", "variant_type_df2", "deleted_bases_df1", "deleted_bases_df2", "inserted_bases_df1", "inserted_bases_df2"]).rename(columns={"ID_df2": "ID"})
 
         # 2. Merge deletion
         del_merged = pd.merge(del_mut, del_cosmic, on=["CHROM", "deleted_bases"], how="left", suffixes=("_df1", "_df2"))
@@ -299,7 +299,7 @@ def merge_gatk_and_cosmic(df_mut, cosmic_df, exact_position=False):
         # Filter rows where POS is within a certain range, setting the threshold dynamically based on 'sub' column - subs must be perfect, indels can be within 5
         del_merged = del_merged[abs(del_merged["POS_df1"] - del_merged["POS_df2"]) <= 5]
 
-        del_merged = del_merged.drop(columns=["ID_df1", "POS_df1", "REF_df1", "ALT_df1", "mutation_type_df1", "mutation_type_df2", "inserted_bases_df1", "inserted_bases_df2", "deleted_bases"]).rename(columns={"ID_df2": "ID", "POS_df2": "POS", "REF_df2": "REF", "ALT_df2": "ALT"})
+        del_merged = del_merged.drop(columns=["ID_df1", "POS_df1", "REF_df1", "ALT_df1", "variant_type_df1", "variant_type_df2", "inserted_bases_df1", "inserted_bases_df2", "deleted_bases"]).rename(columns={"ID_df2": "ID", "POS_df2": "POS", "REF_df2": "REF", "ALT_df2": "ALT"})
 
         # 3. Merge insertion
         ins_merged = pd.merge(ins_mut, ins_cosmic, on=["CHROM", "inserted_bases"], how="left", suffixes=("_df1", "_df2"))
@@ -307,7 +307,7 @@ def merge_gatk_and_cosmic(df_mut, cosmic_df, exact_position=False):
         # Filter rows where POS is within a certain range, setting the threshold dynamically based on 'sub' column - subs must be perfect, indels can be within 5
         ins_merged = ins_merged[abs(ins_merged["POS_df1"] - ins_merged["POS_df2"]) <= 5]
 
-        ins_merged = ins_merged.drop(columns=["ID_df1", "POS_df1", "REF_df1", "ALT_df1", "mutation_type_df1", "mutation_type_df2", "deleted_bases_df1", "deleted_bases_df2", "inserted_bases"]).rename(columns={"ID_df2": "ID", "POS_df2": "POS", "REF_df2": "REF", "ALT_df2": "ALT"})
+        ins_merged = ins_merged.drop(columns=["ID_df1", "POS_df1", "REF_df1", "ALT_df1", "variant_type_df1", "variant_type_df2", "deleted_bases_df1", "deleted_bases_df2", "inserted_bases"]).rename(columns={"ID_df2": "ID", "POS_df2": "POS", "REF_df2": "REF", "ALT_df2": "ALT"})
 
         # Combine all results
         merged_df = pd.concat([sub_delins_merged, del_merged, ins_merged], ignore_index=True)
