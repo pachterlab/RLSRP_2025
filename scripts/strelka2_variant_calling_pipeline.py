@@ -3,7 +3,7 @@ import subprocess
 
 import pandas as pd
 import pysam
-varseek_directory = os.path.dirname(os.path.abspath(""))
+varseek_directory = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 from varseek.utils import (
     add_vcf_info_to_cosmic_tsv,
@@ -30,8 +30,8 @@ synthetic_read_fastq = os.path.join(out_dir_notebook, "synthetic_reads.fq")
 unique_mcrs_df_path = os.path.join(out_dir_notebook, "unique_mcrs_df.csv")
 strelka2_output_dir = os.path.join(varseek_directory, "data", "strelka2_simulated_data_dir")  #!!! change for each run
 
-cosmic_tsv = os.path.join(reference_out_dir, "cosmic", "CancerMutationCensus_AllData_Tsv_v100_GRCh37", "CancerMutationCensus_AllData_v100_GRCh37.tsv")
-cosmic_cdna_info_csv = os.path.join(reference_out_dir, "cosmic", "CancerMutationCensus_AllData_Tsv_v100_GRCh37", "CancerMutationCensus_AllData_v100_GRCh37_mutation_workflow_with_cdna.csv")
+cosmic_tsv = os.path.join(reference_out_dir, "cosmic", "CancerMutationCensus_AllData_Tsv_v100_GRCh37_v2", "CancerMutationCensus_AllData_v100_GRCh37.tsv")
+cosmic_cdna_info_csv = os.path.join(reference_out_dir, "cosmic", "CancerMutationCensus_AllData_Tsv_v100_GRCh37_v2", "CancerMutationCensus_AllData_v100_GRCh37_mutation_workflow_with_cdna.csv")
 
 # if these paths don't exist then they will be created
 reference_genome_fasta = os.path.join(reference_out_dir, "ensembl_grch37_release93", "Homo_sapiens.GRCh37.dna.primary_assembly.fa")
@@ -41,7 +41,7 @@ star_genome_dir = os.path.join(reference_out_dir, "ensembl_grch37_release93", "s
 star_alignment_dir = os.path.join(out_dir_notebook, "star_alignment")
 
 # Software package paths
-STAR = "star"  # /home/jrich/opt/STAR-2.7.11b/bin/Linux_x86_64/STAR
+STAR = "STAR"  # /home/jrich/opt/STAR-2.7.11b/bin/Linux_x86_64/STAR
 STRELKA_INSTALL_PATH = "strelka-2.9.10.centos6_x86_64"
 ### ARGUMENTS ###
 

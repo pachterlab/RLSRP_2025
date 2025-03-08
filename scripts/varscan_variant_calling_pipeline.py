@@ -14,7 +14,7 @@ from varseek.utils import (
     safe_literal_eval,
     vcf_to_dataframe,
 )
-varseek_directory = os.path.dirname(os.path.abspath(""))
+varseek_directory = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 run_benchmarking = False  #!!! change to True when finished debugging the variant calling pipeline
 
@@ -30,8 +30,8 @@ synthetic_read_fastq = os.path.join(out_dir_notebook, "synthetic_reads.fq")
 unique_mcrs_df_path = os.path.join(out_dir_notebook, "unique_mcrs_df.csv")
 varscan_output_dir = os.path.join(varseek_directory, "data", "varscan_simulated_data_dir")  #!!! change for each run
 
-cosmic_tsv = os.path.join(reference_out_dir, "cosmic", "CancerMutationCensus_AllData_Tsv_v100_GRCh37", "CancerMutationCensus_AllData_v100_GRCh37.tsv")
-cosmic_cdna_info_csv = os.path.join(reference_out_dir, "cosmic", "CancerMutationCensus_AllData_Tsv_v100_GRCh37", "CancerMutationCensus_AllData_v100_GRCh37_mutation_workflow_with_cdna.csv")
+cosmic_tsv = os.path.join(reference_out_dir, "cosmic", "CancerMutationCensus_AllData_Tsv_v100_GRCh37_v2", "CancerMutationCensus_AllData_v100_GRCh37.tsv")
+cosmic_cdna_info_csv = os.path.join(reference_out_dir, "cosmic", "CancerMutationCensus_AllData_Tsv_v100_GRCh37_v2", "CancerMutationCensus_AllData_v100_GRCh37_mutation_workflow_with_cdna.csv")
 
 # if these paths don't exist then they will be created
 reference_genome_fasta = os.path.join(reference_out_dir, "ensembl_grch37_release93", "Homo_sapiens.GRCh37.dna.primary_assembly.fa")
@@ -41,7 +41,7 @@ star_genome_dir = os.path.join(reference_out_dir, "ensembl_grch37_release93", "s
 star_alignment_dir = os.path.join(out_dir_notebook, "star_alignment")
 
 # Software package paths
-STAR = "star"  # replace with path to STAR if needed
+STAR = "STAR"  # replace with path to STAR if needed
 VARSCAN_JAR = "VarScan.v2.3.9.jar"  # replace with path to VarScan jar if needed
 ### ARGUMENTS ###
 

@@ -6,7 +6,7 @@ import pandas as pd
 from varseek.utils import report_time_and_memory_of_script
 
 number_of_variants_list = [1, 4, 16, 64, 256, 1024, 4096]  # number of variants, in thousands
-cosmic_mutations_path = "/Users/joeyrich/Desktop/local/data/cosmic/CancerMutationCensus_AllData_Tsv_v100_GRCh37/CancerMutationCensus_AllData_v100_GRCh37_mutation_workflow.csv"
+cosmic_mutations_path = "/Users/joeyrich/Desktop/local/data/cosmic/CancerMutationCensus_AllData_Tsv_v100_GRCh37_v2/CancerMutationCensus_AllData_v100_GRCh37_mutation_workflow.csv"
 sequences_fasta_path = "/Users/joeyrich/Desktop/local/data/ensembl/grch37_release93/Homo_sapiens.GRCh37.cds.all.fa"
 output_file = "/Users/joeyrich/Desktop/local/varseek/logs/vk_ref_time_and_memory.txt"
 
