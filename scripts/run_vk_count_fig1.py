@@ -54,10 +54,8 @@ if not os.path.isdir(vk_ref_out) or len(os.listdir(vk_ref_out)) == 0:
 # check for kb count reference genome files when needed in vk count (i.e., when qc_against_gene_matrix=True)
 if qc_against_gene_matrix and (not os.path.exists(reference_genome_index) or not os.path.exists(reference_genome_t2g)):
     if not os.path.exists(reference_genome_fasta) or not os.path.exists(reference_genome_gtf):
-        import gget
         reference_genome_out_dir = os.path.dirname(reference_genome_fasta)
-        # using grch37, ensembl 93 to agree with COSMIC
-        subprocess.run(["gget", "ref", "-w", "dna,gtf", "-r", "93", "--out_dir", reference_genome_out_dir, "-d", "human_grch37"], check=True)
+        subprocess.run(["gget", "ref", "-w", "dna,gtf", "-r", "93", "--out_dir", reference_genome_out_dir, "-d", "human_grch37"], check=True)  # using grch37, ensembl 93 to agree with COSMIC
     reference_genome_f1 = os.path.join(reference_out_dir, "ensembl_grch37_release93", "f1.fasta")
     subprocess.run(["kb", "ref", "-t", str(threads), "-i", reference_genome_index, "-g", reference_genome_t2g, "-f1", reference_genome_f1, reference_genome_fasta, reference_genome_gtf], check=True)
 
