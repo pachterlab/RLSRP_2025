@@ -11,7 +11,6 @@ from varseek.utils import (
     calculate_sensitivity_specificity,
     create_venn_diagram,
     draw_confusion_matrix,
-    merge_gatk_and_cosmic,
     safe_literal_eval,
     vcf_to_dataframe,
     is_program_installed
@@ -20,9 +19,10 @@ from varseek.utils import (
 run_benchmarking = False  #!!! change to True when finished debugging the variant calling pipeline
 
 ### ARGUMENTS ###
-threads = 4
+threads = 16
 read_length = 150
 mutation_source = "cdna"  # "cdna", "cds"
+BIN_VERSION="1.4.0"
 
 # Paths
 out_dir_notebook = os.path.join(varseek_directory, "data", "simulated_data_output")  #* make sure this matches notebook 2
@@ -94,13 +94,13 @@ if not os.path.exists(reference_genome_gtf):
 #     subprocess.run(["tar", "-xzf", star_tarball, "-C", opt_dir], check=True)
 
 if not os.path.exists(model_checkpoint_data_path):
-    subprocess.run(f"curl https://storage.googleapis.com/deepvariant/models/DeepVariant/1.4.0/DeepVariant-inception_v3-1.4.0+data-rnaseq_standard/model.ckpt.data-00000-of-00001 > {model_checkpoint_data_path}", check=True, shell=True)
+    subprocess.run(f"curl https://storage.googleapis.com/deepvariant/models/DeepVariant/{BIN_VERSION}/DeepVariant-inception_v3-{BIN_VERSION}+data-rnaseq_standard/model.ckpt.data-00000-of-00001 > {model_checkpoint_data_path}", check=True, shell=True)
 
 if not os.path.exists(model_checkpoint_index_path):
-    subprocess.run(f"curl https://storage.googleapis.com/deepvariant/models/DeepVariant/1.4.0/DeepVariant-inception_v3-1.4.0+data-rnaseq_standard/model.ckpt.index > {model_checkpoint_index_path}", check=True, shell=True)
+    subprocess.run(f"curl https://storage.googleapis.com/deepvariant/models/DeepVariant/{BIN_VERSION}/DeepVariant-inception_v3-{BIN_VERSION}+data-rnaseq_standard/model.ckpt.index > {model_checkpoint_index_path}", check=True, shell=True)
 
 if not os.path.exists(model_checkpoint_meta_path):
-    subprocess.run(f"curl https://storage.googleapis.com/deepvariant/models/DeepVariant/1.4.0/DeepVariant-inception_v3-1.4.0+data-rnaseq_standard/model.ckpt.meta > {model_checkpoint_meta_path}", check=True, shell=True)
+    subprocess.run(f"curl https://storage.googleapis.com/deepvariant/models/DeepVariant/{BIN_VERSION}/DeepVariant-inception_v3-{BIN_VERSION}+data-rnaseq_standard/model.ckpt.meta > {model_checkpoint_meta_path}", check=True, shell=True)
 
 #* Genome alignment with STAR
 star_build_command = [
@@ -115,6 +115,10 @@ star_build_command = [
 
 if not os.listdir(star_genome_dir):
     subprocess.run(star_build_command, check=True)
+
+#* Index reference genome
+if not os.path.exists(f"{reference_genome_fasta}.fai"):
+    _ = pysam.faidx(reference_genome_fasta)
 
 star_align_command = [
     STAR,
@@ -132,18 +136,12 @@ star_align_command = [
 if not os.path.exists(aligned_and_unmapped_bam):
     subprocess.run(star_align_command, check=True)
 
-#* Index reference genome
-if not os.path.exists(f"{reference_genome_fasta}.fai"):
-    _ = pysam.faidx(reference_genome_fasta)
-
 #* Index BAM file
 bam_index_file = f"{aligned_and_unmapped_bam}.bai"
 if not os.path.exists(bam_index_file):
     _ = pysam.index(aligned_and_unmapped_bam)
 
 #* deepvariant variant calling
-BIN_VERSION="1.8.0"
-
 deepvariant_command = [
     "sudo", "docker", "run",
     "-v", f"{os.getcwd()}:{os.getcwd()}",
@@ -181,23 +179,23 @@ id_set_deepvariant = set(deepvariant_cosmic_merged_df['ID'])
 
 # Merge DP values into unique_mcrs_df
 # Step 1: Remove rows with NaN values in 'ID' column
-deepvariant_cosmic_merged_df_for_merging = deepvariant_cosmic_merged_df[['ID', 'DP_deepvariant']].dropna(subset=['ID']).rename(columns={'ID': 'vcrs_header'})
+deepvariant_cosmic_merged_df_for_merging = deepvariant_cosmic_merged_df[['ID', 'DP_deepvariant']].dropna(subset=['ID']).rename(columns={'ID': 'mcrs_header'})
 
 # Step 2: Drop duplicates from 'ID' column
-deepvariant_cosmic_merged_df_for_merging = deepvariant_cosmic_merged_df_for_merging.drop_duplicates(subset=['vcrs_header'])
+deepvariant_cosmic_merged_df_for_merging = deepvariant_cosmic_merged_df_for_merging.drop_duplicates(subset=['mcrs_header'])
 
 # Step 3: Left merge with unique_mcrs_df
 unique_mcrs_df = pd.merge(
     unique_mcrs_df,               # Left DataFrame
     deepvariant_cosmic_merged_df_for_merging,         # Right DataFrame
-    on='vcrs_header',
+    on='mcrs_header',
     how='left'
 )
 
 number_of_mutations_deepvariant = len(df_deepvariant.drop_duplicates(subset=['CHROM', 'POS', 'REF', 'ALT']))
 number_of_cosmic_mutations_deepvariant = len(deepvariant_cosmic_merged_df.drop_duplicates(subset=['CHROM', 'POS', 'REF', 'ALT']))
 
-# unique_mcrs_df['header_list'] each contains a list of strings. I would like to make a new column unique_mcrs_df['mutation_detected_deepvariant'] where each row is True if any value from the list unique_mcrs_df['vcrs_header'] is in the set id_set_mut  # keep in mind that my IDs are the mutation headers (ENST...), NOT mcrs headers or mcrs ids
+# unique_mcrs_df['header_list'] each contains a list of strings. I would like to make a new column unique_mcrs_df['mutation_detected_deepvariant'] where each row is True if any value from the list unique_mcrs_df['mcrs_header'] is in the set id_set_mut  # keep in mind that my IDs are the mutation headers (ENST...), NOT mcrs headers or mcrs ids
 unique_mcrs_df['mutation_detected_deepvariant'] = unique_mcrs_df['header_list'].apply(
     lambda header_list: any(header in id_set_deepvariant for header in header_list)
 )
@@ -211,17 +209,17 @@ unique_mcrs_df['FN'] = (unique_mcrs_df['included_in_synthetic_reads_mutant'] & ~
 unique_mcrs_df['TN'] = (~unique_mcrs_df['included_in_synthetic_reads_mutant'] & ~unique_mcrs_df['mutation_detected_deepvariant'])
 
 deepvariant_stat_path = f"{deepvariant_benchmarking_output}/reference_metrics_deepvariant.txt"
-metric_dictionary_reference = calculate_metrics(unique_mcrs_df, header_name = "vcrs_header", check_assertions = False, out = deepvariant_stat_path)
+metric_dictionary_reference = calculate_metrics(unique_mcrs_df, header_name = "mcrs_header", check_assertions = False, out = deepvariant_stat_path)
 draw_confusion_matrix(metric_dictionary_reference)
 
-true_set = set(unique_mcrs_df.loc[unique_mcrs_df['included_in_synthetic_reads_mutant'], 'vcrs_header'])
-positive_set = set(unique_mcrs_df.loc[unique_mcrs_df['mutation_detected_deepvariant'], 'vcrs_header'])
+true_set = set(unique_mcrs_df.loc[unique_mcrs_df['included_in_synthetic_reads_mutant'], 'mcrs_header'])
+positive_set = set(unique_mcrs_df.loc[unique_mcrs_df['mutation_detected_deepvariant'], 'mcrs_header'])
 create_venn_diagram(true_set, positive_set, TN = metric_dictionary_reference['TN'], out_path = f"{deepvariant_benchmarking_output}/venn_diagram_reference_cosmic_only_deepvariant.png")
 
 noncosmic_mutation_id_set = {f'deepvariant_fp_{i}' for i in range(1, number_of_mutations_deepvariant - number_of_cosmic_mutations_deepvariant + 1)}
 
 positive_set_including_noncosmic_mutations = positive_set.union(noncosmic_mutation_id_set)
-false_positive_set = set(unique_mcrs_df.loc[unique_mcrs_df['FP'], 'vcrs_header'])
+false_positive_set = set(unique_mcrs_df.loc[unique_mcrs_df['FP'], 'mcrs_header'])
 false_positive_set_including_noncosmic_mutations = false_positive_set.union(noncosmic_mutation_id_set)
 
 FP_including_noncosmic = len(false_positive_set_including_noncosmic_mutations)
