@@ -6,7 +6,7 @@ import varseek as vk
 
 # more on the dataset: https://www.ebi.ac.uk/ena/browser/view/PRJNA523380
 data_to_use = "rnaseq"  # options: "rnaseq", "wxs", "wxs_with_corresponding_rnaseq_sample", "rnaseq_and_wxs", "wxs_and_rnaseq"
-number_of_threads_total = 64
+number_of_threads_total = 8  # if too high (e.g., 64), then will not be able to download successfully (server error) - 8 seems like the sweet spot
 number_of_threads_per_varseek_count_task = 4
 max_retries = 5
 download_only = True  #!!! change to False
@@ -65,7 +65,7 @@ if not os.path.exists(json_path):
     try:
         json_updated_path_tmp = os.path.join(ccle_data_out_base, "ccle_metadata_updated_tmp.json")
         update_ccle_metadata_script = os.path.join(script_dir, "update_ccle_metadata.R")
-        subprocess.run(["Rscript", update_ccle_metadata_script, json_path, json_updated_path_tmp], check=True)
+        subprocess.run(["Rscript", update_ccle_metadata_script, json_path, json_updated_path_tmp], check=True)  # TODO: will try to install dependencies in conda environment - unsure if this works
         os.rename(json_updated_path_tmp, json_path)
     except Exception as e:
         print("Error in updating CCLE metadata:", e)
@@ -95,29 +95,9 @@ number_of_items = len(data_list_to_run)
 if download_only:
     number_of_threads_per_varseek_count_task = 1
 
-number_of_tasks = number_of_threads_total / number_of_threads_per_varseek_count_task
-with concurrent.futures.ThreadPoolExecutor(max_workers=number_of_tasks) as executor:
-    futures = [
-        executor.submit(
-            download_ccle_total,
-            record=record,
-            vcrs_index=vcrs_index,
-            vcrs_t2g=vcrs_t2g,
-            ccle_data_out_base=ccle_data_out_base,
-            max_retries=max_retries,
-            k=k,
-            quality_control_fastqs=quality_control_fastqs,
-            cut_front=cut_front,
-            cut_tail=cut_tail,
-            reference_genome_index=reference_genome_index,
-            reference_genome_t2g=reference_genome_t2g,
-            qc_against_gene_matrix=qc_against_gene_matrix,
-            number_of_threads_per_varseek_count_task=number_of_threads_per_varseek_count_task,
-        )
-        for record in data_list_to_run
-    ]
+if number_of_threads_total > 10:
+    print("WARNING: diminishing returns after 10 threads for downloading")
 
-    concurrent.futures.wait(futures)
 
 def download_ccle_total(
     record,
@@ -142,6 +122,7 @@ def download_ccle_total(
     fastq_links = fastq_ftp.split(';')
 
     sample_out_folder = os.path.join(ccle_data_out_base, sample)
+    os.makedirs(sample_out_folder, exist_ok=True)
 
     failed_downloads = list()
     fastq_files = list()
@@ -205,3 +186,28 @@ def download_ccle_total(
     if delete_fastq_files:
         for fastq_file in fastq_files:
             os.remove(fastq_file)
+
+
+number_of_tasks = number_of_threads_total / number_of_threads_per_varseek_count_task
+with concurrent.futures.ThreadPoolExecutor(max_workers=number_of_tasks) as executor:
+    futures = [
+        executor.submit(
+            download_ccle_total,
+            record=record,
+            vcrs_index=vcrs_index,
+            vcrs_t2g=vcrs_t2g,
+            ccle_data_out_base=ccle_data_out_base,
+            max_retries=max_retries,
+            k=k,
+            quality_control_fastqs=quality_control_fastqs,
+            cut_front=cut_front,
+            cut_tail=cut_tail,
+            reference_genome_index=reference_genome_index,
+            reference_genome_t2g=reference_genome_t2g,
+            qc_against_gene_matrix=qc_against_gene_matrix,
+            number_of_threads_per_varseek_count_task=number_of_threads_per_varseek_count_task,
+        )
+        for record in data_list_to_run
+    ]
+
+    concurrent.futures.wait(futures)

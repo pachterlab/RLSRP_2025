@@ -3,6 +3,7 @@
 # Function to check and install missing packages
 install_if_missing <- function(pkg) {
     if (!requireNamespace(pkg, quietly = TRUE)) {
+        options(repos = c(CRAN = "https://cloud.r-project.org"))  # Set CRAN mirror
         install.packages(pkg)
     }
 }
@@ -11,10 +12,10 @@ install_if_missing <- function(pkg) {
 install_if_missing("dplyr")
 install_if_missing("jsonlite")
 
-# Check & install Bioconductor package (depmap)
+# Install missing Bioconductor package (depmap)
 if (!requireNamespace("depmap", quietly = TRUE)) {
     if (!requireNamespace("BiocManager", quietly = TRUE)) {
-        install.packages("BiocManager")
+        install.packages("BiocManager", repos = "https://cloud.r-project.org")  # Ensure BiocManager installs correctly
     }
     BiocManager::install("depmap")
 }
