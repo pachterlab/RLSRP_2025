@@ -35,9 +35,9 @@ all_supported_tools_to_benchmark = {"varseek", "gatk_haplotypecaller", "gatk_mut
 tools_that_require_star_alignment = {"gatk_haplotypecaller", "gatk_mutect2", "strelka2", "varscan", "deepvariant"}
 
 ### ARGUMENTS ###
-number_of_reads_list = [0.001, 0.002] #!!! uncomment [1, 4, 16, 64, 256, 1024]  # number of reads, in millions
-tools_to_benchmark = {"varseek", "gatk_haplotypecaller", "gatk_mutect2", "strelka2", "varscan", "deepvariant"}
-dry_run = True  #!!! change to False  # only applies to the variant calling steps, not to the preparation (ie STAR, data downloads, etc)
+number_of_reads_list = [1, 4, 16, 64, 256, 1024]  # number of reads, in millions
+tools_to_benchmark = ["varseek", "gatk_haplotypecaller", "gatk_mutect2", "strelka2", "varscan", "deepvariant"]
+dry_run = False  # only applies to the variant calling steps, not to the preparation (ie STAR, data downloads, etc)
 
 read_length = 150
 k = 51
@@ -86,6 +86,7 @@ java = "/home/jmrich/opt/jdk-17.0.12+7/bin/java"
 picard_jar = "/home/jmrich/opt/picard.jar"
 gatk = "/home/jmrich/opt/gatk-4.6.0.0/gatk"
 STRELKA_INSTALL_PATH = "/home/jmrich/opt/strelka-2.9.10.centos6_x86_64"
+python2_env = "python2_env"
 VARSCAN_INSTALL_PATH = "/home/jmrich/opt/VarScan.v2.3.9.jar"
 
 tmp_dir = "tmp"
@@ -100,7 +101,7 @@ model_checkpoint_meta_path = os.path.join(deepvariant_model, "model.ckpt.meta")
 # random.seed(random_seed)
 # np.random.seed(random_seed)
 
-# os.makedirs(tmp_dir)  # purposely not using exist_ok=True to ensure that the directory is non-existent  #!!! uncomment
+os.makedirs(tmp_dir)  # purposely not using exist_ok=True to ensure that the directory is non-existent  #* comment out for debugging to keep tmp_dir between runs
 os.makedirs(deepvariant_model, exist_ok=True)
 
 if not star_genome_dir:
@@ -114,8 +115,8 @@ elif strand == "r":
     kb_count_strand = "reverse"
 
 vk_count_script_path = os.path.join(script_dir, "run_varseek_count_for_benchmarking.py")
-gatk_haplotypecaller_script_path = os.path.join(script_dir, "run_gatk_for_benchmarking.py")
-gatk_mutect2_script_path = os.path.join(script_dir, "run_gatk_for_benchmarking.py")
+gatk_haplotypecaller_script_path = os.path.join(script_dir, "run_gatk_haplotypecaller_for_benchmarking.py")
+gatk_mutect2_script_path = os.path.join(script_dir, "run_gatk_mutect2_for_benchmarking.py")
 strelka_script_path = os.path.join(script_dir, "run_strelka_for_benchmarking.py")
 varscan_script_path = os.path.join(script_dir, "run_varscan_for_benchmarking.py")
 deepvariant_script_path = os.path.join(script_dir, "run_deepvariant_for_benchmarking.py")
@@ -255,7 +256,7 @@ if any(tool in tools_that_require_star_alignment for tool in tools_to_benchmark)
     unzip_reference_genome_fasta_command = ["gunzip", f"{reference_genome_fasta}.gz"]
 
     reference_genome_out_dir = os.path.dirname(reference_genome_gtf) if os.path.dirname(reference_genome_gtf) else "."
-    os.makedirs(reference_genome_gtf, exist_ok=True)
+    os.makedirs(reference_genome_out_dir, exist_ok=True)
     download_reference_genome_gtf_command = ["gget", "ref", "-w", "gtf", "-r", "93", "--out_dir", reference_genome_gtf, "-d", "human_grch37"]
     unzip_reference_genome_gtf_command = ["gunzip", f"{reference_genome_gtf}.gz"]
 
@@ -346,11 +347,16 @@ if ("gatk_haplotypecaller" in tools_to_benchmark or "gatk_mutect2" in tools_to_b
         # os.environ['PATH'] = f"{gatk_dir_name}:{os.environ['PATH']}"
 
 
-if "strelka2" in tools_to_benchmark and not os.path.exists(STRELKA_INSTALL_PATH):
-    raise ValueError("Strelka2 is required to run Strelka2. Please install Strelka2 and ensure that it is in your PATH.")
-    # strelka_tarball = f"{STRELKA_INSTALL_PATH}.tar.bz2"
-    # subprocess.run(["wget", "-O", strelka_tarball, "https://github.com/Illumina/strelka/releases/download/v2.9.10/strelka-2.9.10.centos6_x86_64.tar.bz2"], check=True)
-    # subprocess.run(["tar", "-xvjf", strelka_tarball, "-C", opt_dir], check=True)
+if "strelka2" in tools_to_benchmark:
+    if not os.path.exists(STRELKA_INSTALL_PATH):
+        raise ValueError("Strelka2 is required to run Strelka2. Please install Strelka2 and ensure that it is in your PATH.")
+        # strelka_tarball = f"{STRELKA_INSTALL_PATH}.tar.bz2"
+        # subprocess.run(["wget", "-O", strelka_tarball, "https://github.com/Illumina/strelka/releases/download/v2.9.10/strelka-2.9.10.centos6_x86_64.tar.bz2"], check=True)
+        # subprocess.run(["tar", "-xvjf", strelka_tarball, "-C", opt_dir], check=True)
+
+    check_conda_environments_result = subprocess.run(["conda", "env", "list"], capture_output=True, text=True)
+    if python2_env not in check_conda_environments_result.stdout:
+        raise FileNotFoundError(f"Conda environment {python2_env} for Strelka2 not found. Please create with `conda create -n {python2_env} python=2.7`.") 
 
 if "varscan" in tools_to_benchmark and not os.path.exists(VARSCAN_INSTALL_PATH):
     raise ValueError("VarScan is required to run VarScan. Please install VarScan and ensure that it is in your PATH.")
@@ -360,10 +366,9 @@ if "varscan" in tools_to_benchmark and not os.path.exists(VARSCAN_INSTALL_PATH):
 #* Run variant calling tools
 for number_of_reads in number_of_reads_list:
     number_of_reads = int(number_of_reads * 10**6)  # convert to millions
+    fastq_output_path = os.path.join(tmp_dir, f"reads_{number_of_reads}_fastq.fastq")
     if number_of_reads != number_of_reads_max:
-        number_of_reads_fraction = number_of_reads / number_of_reads_max
-        fastq_output_path = os.path.join(tmp_dir, f"reads_{number_of_reads}_fastq.fastq")
-        seqtk_sample_command = f"{seqtk} sample -s {random_seed} {fastq_output_path_max_reads} {number_of_reads_fraction} > {fastq_output_path}"
+        seqtk_sample_command = f"{seqtk} sample -s {random_seed} {fastq_output_path_max_reads} {number_of_reads} > {fastq_output_path}"
         subprocess.run(seqtk_sample_command, shell=True, check=True)
 
     kb_count_reference_genome_out_dir = os.path.join(tmp_dir, f"kb_count_reference_genome_out_dir_{number_of_reads}")
@@ -398,7 +403,7 @@ for number_of_reads in number_of_reads_list:
         logger.info(f"varseek, {number_of_reads} reads")
         output_file = os.path.join(output_dir, f"vk_count_threads_{threads}_reads_{number_of_reads}_time_and_memory.txt")
         vk_count_out_tmp = os.path.join(tmp_dir, f"vk_count_threads_{threads}_reads_{number_of_reads}_out")
-        argparse_flags = f"--index {vk_ref_index_path} --t2g {vk_ref_t2g_path} --out {vk_count_out_tmp} --kb_count_reference_genome_out_dir {kb_count_reference_genome_out_dir} --disable_summarize {fastq_output_path}"
+        argparse_flags = f"--index {vk_ref_index_path} --t2g {vk_ref_t2g_path} --technology bulk --threads {threads} -k {k} --out {vk_count_out_tmp} --kb_count_reference_genome_out_dir {kb_count_reference_genome_out_dir} --disable_summarize {fastq_output_path}"
         if dry_run:
             print(f"python3 {vk_count_script_path} {argparse_flags}")
         else:
@@ -409,7 +414,7 @@ for number_of_reads in number_of_reads_list:
         logger.info(f"varseek k={k_small}, {number_of_reads} reads")
         output_file = os.path.join(output_dir, f"vk_count_k{k_small}_threads_{threads}_reads_{number_of_reads}_time_and_memory.txt")
         vk_count_out_tmp = os.path.join(tmp_dir, f"vk_count_k{k_small}_threads_{threads}_reads_{number_of_reads}_out")
-        argparse_flags = f"--index {vk_ref_small_k_index_path} --t2g {vk_ref_small_k_t2g_path} --out {vk_count_out_tmp} -k {k_small} --kb_count_reference_genome_out_dir {kb_count_reference_genome_out_dir} --disable_summarize {fastq_output_path}"
+        argparse_flags = f"--index {vk_ref_small_k_index_path} --t2g {vk_ref_small_k_t2g_path} --technology bulk --threads {threads} -k {k_small} --out {vk_count_out_tmp} -k {k_small} --kb_count_reference_genome_out_dir {kb_count_reference_genome_out_dir} --disable_summarize {fastq_output_path}"
         if dry_run:
             print(f"python3 {vk_count_script_path} {argparse_flags}")
         else:
@@ -452,7 +457,7 @@ for number_of_reads in number_of_reads_list:
         #* Variant calling: GATK HaplotypeCaller
         logger.info(f"GATK HaplotypeCaller, {number_of_reads} reads")
         output_file = os.path.join(output_dir, f"gatk_haplotypecaller_threads_{threads}_reads_{number_of_reads}_time_and_memory.txt")
-        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --threads {threads} --read_length {read_length} --STAR {STAR} --java {java} --picard_jar {picard_jar} --gatk {gatk} --out {tmp_dir} --aligned_and_unmapped_bam {aligned_and_unmapped_bam} --skip_accuracy_analysis"
+        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --genomes1000_vcf {genomes1000_vcf} --star_genome_dir {star_genome_dir} --aligned_and_unmapped_bam {aligned_and_unmapped_bam} --out {tmp_dir} --threads {threads} --read_length {read_length} --STAR {STAR} --java {java} --picard_jar {picard_jar} --gatk {gatk} --skip_accuracy_analysis"
         if dry_run:
             print(f"python3 {gatk_haplotypecaller_script_path} {argparse_flags}")
         else:
@@ -462,7 +467,7 @@ for number_of_reads in number_of_reads_list:
         #* Variant calling: GATK Mutect2
         logger.info(f"GATK Mutect2, {number_of_reads} reads")
         output_file = os.path.join(output_dir, f"gatk_mutect2_threads_{threads}_reads_{number_of_reads}_time_and_memory.txt")
-        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --threads {threads} --read_length {read_length} --STAR {STAR} --java {java} --picard_jar {picard_jar} --gatk {gatk} --out {tmp_dir} --aligned_and_unmapped_bam {aligned_and_unmapped_bam} --skip_accuracy_analysis"
+        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --genomes1000_vcf {genomes1000_vcf} --star_genome_dir {star_genome_dir} --aligned_and_unmapped_bam {aligned_and_unmapped_bam} --out {tmp_dir} --threads {threads} --read_length {read_length} --STAR {STAR} --java {java} --picard_jar {picard_jar} --gatk {gatk} --skip_accuracy_analysis"
         if dry_run:
             print(f"python3 {gatk_mutect2_script_path} {argparse_flags}")
         else:
@@ -472,7 +477,7 @@ for number_of_reads in number_of_reads_list:
         #* Variant calling: Strelka2
         logger.info(f"Strelka2, {number_of_reads} reads")
         output_file = os.path.join(output_dir, f"strelka2_threads_{threads}_reads_{number_of_reads}_time_and_memory.txt")
-        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --threads {threads} --read_length {read_length} --STRELKA_INSTALL_PATH {STRELKA_INSTALL_PATH} --out {tmp_dir} --aligned_and_unmapped_bam {aligned_and_unmapped_bam} --skip_accuracy_analysis"
+        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --aligned_and_unmapped_bam {aligned_and_unmapped_bam} --out {tmp_dir} --threads {threads} --read_length {read_length} --STRELKA_INSTALL_PATH {STRELKA_INSTALL_PATH} --python2_env {python2_env} --skip_accuracy_analysis"
         if dry_run:
             print(f"python3 {strelka_script_path} {argparse_flags}")
         else:
@@ -498,7 +503,5 @@ for number_of_reads in number_of_reads_list:
         else:
             _ = report_time_and_memory_of_script(deepvariant_script_path, output_file = output_file, argparse_flags = argparse_flags)
 
-    os.remove(fastq_output_path)
-
-# delete temp directory
+# delete tmp directory
 # os.system(f"rm -rf {tmp_dir}")  #!!! uncomment later to delete tmp directory

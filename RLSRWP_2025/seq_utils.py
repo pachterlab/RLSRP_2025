@@ -21,7 +21,6 @@ from varseek.utils import (
     calculate_sensitivity_specificity,
     create_venn_diagram,
     draw_confusion_matrix,
-    merge_gatk_and_cosmic,
     safe_literal_eval,
     vcf_to_dataframe,
 )

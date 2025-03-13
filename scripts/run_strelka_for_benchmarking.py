@@ -1,11 +1,12 @@
 import argparse
 import os
+import subprocess
 import sys
 
-import pysam
-import pandas as pd
 import shutil
 
+RLSRWP_2025_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  #!!! erase
+sys.path.append(RLSRWP_2025_dir)  #!!! erase
 from RLSRWP_2025.seq_utils import perform_analysis
 
 from varseek.utils import (
@@ -31,6 +32,7 @@ parser.add_argument("--skip_accuracy_analysis", action="store_true", help="Skip 
 # Executables
 parser.add_argument("--STAR", default="STAR", help="Path to STAR executable")
 parser.add_argument("--STRELKA_INSTALL_PATH", default="STRELKA_INSTALL_PATH", help="Path to STRELKA_INSTALL_PATH parent")
+parser.add_argument("--python2_env", default="python2_env", help="Conda environment name with python2")
 
 # Just for accuracy analysis
 parser.add_argument("--cosmic_tsv", help="Path to COSMIC tsv")
@@ -45,13 +47,14 @@ strelka2_output_dir = os.path.join(args.out, "strelka2_simulated_data_dir")
 reference_genome_fasta = args.reference_genome_fasta
 reference_genome_gtf = args.reference_genome_gtf
 threads = args.threads
-read_length_minus_one = args.read_length - 1
+read_length_minus_one = int(args.read_length) - 1
 skip_accuracy_analysis = args.skip_accuracy_analysis
 synthetic_read_fastq = args.synthetic_read_fastq
 aligned_and_unmapped_bam = args.aligned_and_unmapped_bam
 
 STAR = args.STAR
 STRELKA_INSTALL_PATH = args.STRELKA_INSTALL_PATH
+python2_env = args.python2_env
 
 cosmic_tsv = args.cosmic_tsv
 cosmic_cdna_info_csv = args.cosmic_cdna_info_csv
@@ -61,13 +64,21 @@ for name, path in {"STAR": STAR, "STRELKA_INSTALL_PATH": STRELKA_INSTALL_PATH}.i
     if not os.path.exists(path) and not shutil.which(path):
         raise FileNotFoundError(f"{name} not found or installed properly.")
 
+check_conda_environments_result = subprocess.run(["conda", "env", "list"], capture_output=True, text=True)
+if python2_env not in check_conda_environments_result.stdout:
+    raise FileNotFoundError(f"Conda environment {python2_env} not found. Please create with `conda create -n {python2_env} python=2.7`.") 
+
 os.makedirs(strelka2_output_dir, exist_ok=True)
 os.makedirs(star_genome_dir, exist_ok=True)
 
 alignment_folder = f"{strelka2_output_dir}/alignment"
+os.makedirs(alignment_folder, exist_ok=True)
 out_file_name_prefix = f"{alignment_folder}/sample_"
+vcf_file = os.path.join(strelka2_output_dir, "results", "variants", "variants.vcf.gz")
 
-#* Genome alignment with STAR
+
+# commented out, as these should already be done prior to running this script
+#* STAR Build
 star_build_command = [
     STAR,
     "--runThreadN", str(threads),
@@ -77,7 +88,16 @@ star_build_command = [
     "--sjdbGTFfile", reference_genome_gtf,
     "--sjdbOverhang", str(read_length_minus_one),
 ]
+if not os.listdir(star_genome_dir):
+    run_command_with_error_logging(star_build_command)
 
+#* Reference genome index file
+if not os.path.exists(f"{reference_genome_fasta}.fai"):
+    import pysam
+    _ = pysam.faidx(reference_genome_fasta)
+    # commented out, as these should already be done prior to running this script
+
+#* STAR Alignment
 star_align_command = [
     STAR,
     "--runThreadN", str(threads),
@@ -90,47 +110,40 @@ star_align_command = [
     "--outSAMmapqUnique", "60",
     "--twopassMode", "Basic"
 ]
+if not os.path.exists(aligned_and_unmapped_bam):
+    aligned_and_unmapped_bam = f"{out_file_name_prefix}Aligned.sortedByCoord.out.bam"
+    run_command_with_error_logging(star_align_command)
 
-#* Strelka2 variant calling
+#* BAM index file creation
+bam_index_file = f"{aligned_and_unmapped_bam}.bai"
+if not os.path.exists(bam_index_file):
+    import pysam
+    _ = pysam.index(aligned_and_unmapped_bam)
+
+#* Strelka2 variant calling configuration
 strelka2_configure_command = [
+    "conda", "run", "-n", python2_env,
     f"{STRELKA_INSTALL_PATH}/bin/configureStrelkaGermlineWorkflow.py",
     "--bam", aligned_and_unmapped_bam,
     "--referenceFasta", reference_genome_fasta,
     "--rna",
     "--runDir", strelka2_output_dir
 ]
+if not os.path.exists(os.path.join(strelka2_output_dir, "runWorkflow.py")):
+    run_command_with_error_logging(strelka2_configure_command)
 
+#* Strelka2 variant calling configuration
 strelka2_run_command = [
+    "conda", "run", "-n", python2_env,
     f"{strelka2_output_dir}/runWorkflow.py",
     "-m", "local",
     "-j", str(threads)
 ]
-
-
-# commented out, as these should already be done prior to running this script
-if not os.listdir(star_genome_dir):
-    run_command_with_error_logging(star_build_command)
-
-if not os.path.exists(f"{reference_genome_fasta}.fai"):
-    _ = pysam.faidx(reference_genome_fasta)
-
-if not os.path.exists(aligned_and_unmapped_bam):
-    aligned_and_unmapped_bam = f"{out_file_name_prefix}Aligned.sortedByCoord.out.bam"
-    os.makedirs(alignment_folder, exist_ok=True)
-    run_command_with_error_logging(star_align_command)
-
-bam_index_file = f"{aligned_and_unmapped_bam}.bai"
-if not os.path.exists(bam_index_file):
-    _ = pysam.index(aligned_and_unmapped_bam)
-
-run_command_with_error_logging(strelka2_configure_command)
-
 run_command_with_error_logging(strelka2_run_command)
 
 if skip_accuracy_analysis:
     print("Skipping accuracy analysis")
     sys.exit()
 
-vcf_file = "output.vcf"  #!!!! change
 cosmic_df = add_vcf_info_to_cosmic_tsv(cosmic_tsv=cosmic_tsv, reference_genome_fasta=reference_genome_fasta, cosmic_df_out = None, cosmic_cdna_info_csv = cosmic_cdna_info_csv, mutation_source = "cdna")
 perform_analysis(vcf_file=vcf_file, unique_mcrs_df_path=unique_mcrs_df_path, cosmic_df=cosmic_df, plot_output_folder=strelka2_output_dir, package_name="strelka2")

@@ -5,6 +5,8 @@ import shutil
 
 import pysam
 
+RLSRWP_2025_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  #!!! erase
+sys.path.append(RLSRWP_2025_dir)  #!!! erase
 from RLSRWP_2025.seq_utils import perform_analysis
 
 from varseek.utils import (
@@ -42,7 +44,7 @@ deepvariant_output_dir = os.path.join(args.out, "deepvariant_simulated_data_dir"
 reference_genome_fasta = args.reference_genome_fasta
 reference_genome_gtf = args.reference_genome_gtf
 threads = args.threads
-read_length_minus_one = args.read_length - 1
+read_length_minus_one = int(args.read_length) - 1
 skip_accuracy_analysis = args.skip_accuracy_analysis
 synthetic_read_fastq = args.synthetic_read_fastq
 aligned_and_unmapped_bam = args.aligned_and_unmapped_bam
@@ -56,6 +58,7 @@ unique_mcrs_df_path = args.unique_mcrs_df_path
 os.makedirs(deepvariant_output_dir, exist_ok=True)
 os.makedirs(star_genome_dir, exist_ok=True)
 
+BIN_VERSION="1.8.0"
 alignment_folder = f"{deepvariant_output_dir}/alignment"
 out_file_name_prefix = f"{alignment_folder}/sample_"
 
@@ -68,7 +71,9 @@ for name, path in {"STAR": STAR}.items():
     if not os.path.exists(path) and not shutil.which(path):
         raise FileNotFoundError(f"{name} not found or installed properly.")
 
-#* Genome alignment with STAR
+
+# commented out, as these should already be done prior to running this script
+#* STAR Build
 star_build_command = [
     STAR,
     "--runThreadN", str(threads),
@@ -78,7 +83,15 @@ star_build_command = [
     "--sjdbGTFfile", reference_genome_gtf,
     "--sjdbOverhang", str(read_length_minus_one),
 ]
+if not os.listdir(star_genome_dir):
+    run_command_with_error_logging(star_build_command)
 
+#* Reference genome index file
+if not os.path.exists(f"{reference_genome_fasta}.fai"):
+    _ = pysam.faidx(reference_genome_fasta)
+# commented out, as these should already be done prior to running this script
+
+#* STAR Alignment
 star_align_command = [
     STAR,
     "--runThreadN", str(threads),
@@ -91,12 +104,20 @@ star_align_command = [
     "--outSAMmapqUnique", "60",
     "--twopassMode", "Basic"
 ]
+if not os.path.exists(aligned_and_unmapped_bam):
+    aligned_and_unmapped_bam = f"{out_file_name_prefix}Aligned.sortedByCoord.out.bam"
+    os.makedirs(alignment_folder, exist_ok=True)
+    run_command_with_error_logging(star_align_command)
 
-#* deepvariant variant calling
-BIN_VERSION="1.4.0"
+#* BAM index file creation
+bam_index_file = f"{aligned_and_unmapped_bam}.bai"
+if not os.path.exists(bam_index_file):
+    _ = pysam.index(aligned_and_unmapped_bam)
 
+#* DeepVariant variant calling
+# used sudo in tutorial
 deepvariant_command = [
-    "sudo", "docker", "run",
+    "docker", "run",
     "-v", f"{os.getcwd()}:{os.getcwd()}",
     "-w", os.getcwd(),
     f"google/deepvariant:{BIN_VERSION}",
@@ -110,24 +131,6 @@ deepvariant_command = [
     "--make_examples_extra_args=split_skip_reads=true,channel_list='BASE_CHANNELS'",
     "--intermediate_results_dir", intermediate_results
 ]
-
-# commented out, as these should already be done prior to running this script
-if not os.listdir(star_genome_dir):
-    run_command_with_error_logging(star_build_command)
-
-if not os.path.exists(f"{reference_genome_fasta}.fai"):
-    _ = pysam.faidx(reference_genome_fasta)
-# commented out, as these should already be done prior to running this script
-
-if not os.path.exists(aligned_and_unmapped_bam):
-    aligned_and_unmapped_bam = f"{out_file_name_prefix}Aligned.sortedByCoord.out.bam"
-    os.makedirs(alignment_folder, exist_ok=True)
-    run_command_with_error_logging(star_align_command)
-
-bam_index_file = f"{aligned_and_unmapped_bam}.bai"
-if not os.path.exists(bam_index_file):
-    _ = pysam.index(aligned_and_unmapped_bam)
-
 run_command_with_error_logging(deepvariant_command)
 
 if skip_accuracy_analysis:

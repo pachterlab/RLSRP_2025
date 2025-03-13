@@ -11,6 +11,8 @@ from varseek.utils import (
     add_vcf_info_to_cosmic_tsv,
 )
 
+RLSRWP_2025_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  #!!! erase
+sys.path.append(RLSRWP_2025_dir)  #!!! erase
 from RLSRWP_2025.seq_utils import perform_analysis
 
 parser = argparse.ArgumentParser(description="Run VarScan on a set of reads and report the time and memory usage")
@@ -44,7 +46,7 @@ varscan_output_dir = os.path.join(args.out, "varscan_simulated_data_dir")
 reference_genome_fasta = args.reference_genome_fasta
 reference_genome_gtf = args.reference_genome_gtf
 threads = args.threads
-read_length_minus_one = args.read_length - 1
+read_length_minus_one = int(args.read_length) - 1
 skip_accuracy_analysis = args.skip_accuracy_analysis
 synthetic_read_fastq = args.synthetic_read_fastq
 aligned_and_unmapped_bam = args.aligned_and_unmapped_bam
@@ -67,7 +69,10 @@ os.makedirs(star_genome_dir, exist_ok=True)
 alignment_folder = f"{varscan_output_dir}/alignment"
 out_file_name_prefix = f"{alignment_folder}/sample_"
 data_pileup_file = f"{varscan_output_dir}/simulated_data.pileup"
+vcf_file = f"{varscan_output_dir}/variants.vcf"
 
+
+# commented out, as these should already be done prior to running this script
 #* Genome alignment with STAR
 star_build_command = [
     STAR,
@@ -78,6 +83,13 @@ star_build_command = [
     "--sjdbGTFfile", reference_genome_gtf,
     "--sjdbOverhang", str(read_length_minus_one),
 ]
+if not os.listdir(star_genome_dir):
+    run_command_with_error_logging(star_build_command)
+
+#* Reference genome index file
+if not os.path.exists(f"{reference_genome_fasta}.fai"):
+    _ = pysam.faidx(reference_genome_fasta)
+# commented out, as these should already be done prior to running this script
 
 star_align_command = [
     STAR,
@@ -91,38 +103,27 @@ star_align_command = [
     "--outSAMmapqUnique", "60",
     "--twopassMode", "Basic"
 ]
-
-#* Samtools mpileup
-samtools_mpileup_command = f"samtools mpileup -B -f {reference_genome_fasta} {aligned_and_unmapped_bam} > {data_pileup_file}"
-
-#* Varscan variant calling
-varscan_command = f"java -jar {VARSCAN_INSTALL_PATH} mpileup2cns {data_pileup_file} --output-vcf 1 --variants 1 --min-coverage 1 --min-reads2 1 --min-var-freq 0.0001 --strand-filter 0 --p-value 0.9999"
-
-
-# commented out, as these should already be done prior to running this script
-if not os.listdir(star_genome_dir):
-    run_command_with_error_logging(star_build_command)
-
-if not os.path.exists(f"{reference_genome_fasta}.fai"):
-    _ = pysam.faidx(reference_genome_fasta)
-
 if not os.path.exists(aligned_and_unmapped_bam):
     os.makedirs(alignment_folder, exist_ok=True)
     aligned_and_unmapped_bam = f"{out_file_name_prefix}Aligned.sortedByCoord.out.bam"
     run_command_with_error_logging(star_align_command)
 
+#* BAM index file creation
 bam_index_file = f"{aligned_and_unmapped_bam}.bai"
 if not os.path.exists(bam_index_file):
     _ = pysam.index(aligned_and_unmapped_bam)
 
+#* Samtools mpileup
+samtools_mpileup_command = f"samtools mpileup -B -f {reference_genome_fasta} {aligned_and_unmapped_bam} > {data_pileup_file}"
 run_command_with_error_logging(samtools_mpileup_command)
 
+#* Varscan variant calling
+varscan_command = f"java -jar {VARSCAN_INSTALL_PATH} mpileup2cns {data_pileup_file} --output-vcf 1 --variants 1 --min-coverage 1 --min-reads2 1 --min-var-freq 0.0001 --strand-filter 0 --p-value 0.9999 > {vcf_file}"
 run_command_with_error_logging(varscan_command)
 
 if skip_accuracy_analysis:
     print("Skipping accuracy analysis")
     sys.exit()
 
-vcf_file = "output.vcf"  #!!!! change
 cosmic_df = add_vcf_info_to_cosmic_tsv(cosmic_tsv=cosmic_tsv, reference_genome_fasta=reference_genome_fasta, cosmic_df_out = None, cosmic_cdna_info_csv = cosmic_cdna_info_csv, mutation_source = "cdna")
 perform_analysis(vcf_file=vcf_file, unique_mcrs_df_path=unique_mcrs_df_path, cosmic_df=cosmic_df, plot_output_folder=varscan_output_dir, package_name = "varscan")

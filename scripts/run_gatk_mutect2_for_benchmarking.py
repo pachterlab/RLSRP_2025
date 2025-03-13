@@ -6,12 +6,14 @@ import shutil
 import pysam
 import pandas as pd
 
+
+RLSRWP_2025_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  #!!! erase
+sys.path.append(RLSRWP_2025_dir)  #!!! erase
 from RLSRWP_2025.seq_utils import perform_analysis
 
 from varseek.utils import (
     run_command_with_error_logging,
     add_vcf_info_to_cosmic_tsv,
-    splitext_custom
 )
 
 parser = argparse.ArgumentParser(description="Run GATK Mutect2 on a set of reads and report the time and memory usage")
@@ -20,7 +22,7 @@ parser = argparse.ArgumentParser(description="Run GATK Mutect2 on a set of reads
 parser.add_argument("--synthetic_read_fastq", help="Path to synthetic read FASTQ")
 parser.add_argument("--reference_genome_fasta", help="Path to reference genome fasta")
 parser.add_argument("--reference_genome_gtf", help="Path to reference genome GTF")
-parser.add_argument("--genomes1000_vcf", help="Path to 1000 genomes vcf file")
+parser.add_argument("--genomes1000_vcf", default="1000GENOMES-phase_3.vcf", help="Path to 1000 genomes vcf file")
 parser.add_argument("--star_genome_dir", default="", help="Path to star_genome_dir")
 parser.add_argument("--aligned_and_unmapped_bam", default="", help="Path to aligned_and_unmapped_bam. If not provided, will be created")
 parser.add_argument("--out", default="out", help="Path to out folder")
@@ -51,7 +53,7 @@ reference_genome_fasta = args.reference_genome_fasta
 reference_genome_gtf = args.reference_genome_gtf
 genomes1000_vcf = args.genomes1000_vcf
 threads = args.threads
-read_length_minus_one = args.read_length - 1
+read_length_minus_one = int(args.read_length) - 1
 apply_mutation_filters = args.apply_mutation_filters
 skip_accuracy_analysis = args.skip_accuracy_analysis
 synthetic_read_fastq = args.synthetic_read_fastq
@@ -117,128 +119,7 @@ mutect2_unfiltered_vcf = f"{mutect2_folder}/mutect2_output_unfiltered.g.vcf.gz"
 mutect2_filtered_vcf = f"{mutect2_folder}/mutect2_output_filtered.vcf.gz"
 mutect2_filtered_applied_vcf = f"{mutect2_folder}/mutect2_output_filtered_applied.vcf.gz"
 
-reference_genome_fasta_base, _ = splitext_custom(reference_genome_fasta)
-reference_genome_dict = reference_genome_fasta_base + ".dict"
-
-star_build_command = [
-    STAR,
-    "--runThreadN", str(threads),
-    "--runMode", "genomeGenerate",
-    "--genomeDir", star_genome_dir,
-    "--genomeFastaFiles", reference_genome_fasta,
-    "--sjdbGTFfile", reference_genome_gtf,
-    "--sjdbOverhang", str(read_length_minus_one),
-]
-
-star_align_command = [
-    STAR,
-    "--runThreadN", str(threads),
-    "--genomeDir", star_genome_dir,
-    "--readFilesIn", synthetic_read_fastq,
-    "--sjdbOverhang", str(read_length_minus_one),
-    "--outFileNamePrefix", out_file_name_prefix,
-    "--outSAMtype", "BAM", "SortedByCoordinate",
-    "--outSAMunmapped", "Within",
-    "--outSAMmapqUnique", "60",
-    "--twopassMode", "Basic"
-]
-
-fastq_to_sam_command = [
-    java, "-jar", picard_jar, "FastqToSam",
-    "-FASTQ", synthetic_read_fastq,
-    "-OUTPUT", unmapped_bam,
-    "-READ_GROUP_NAME", "rg1",
-    "-SAMPLE_NAME", "sample1",
-    "-LIBRARY_NAME", "lib1",
-    "-PLATFORM_UNIT", "unit1",
-    "-PLATFORM", "ILLUMINA",
-    "-SEQUENCING_CENTER", "center1"
-]
-
-create_sequence_dict_command = [
-    java, "-jar", picard_jar, "CreateSequenceDictionary",
-    "-R", reference_genome_fasta,
-    "-O", reference_genome_dict
-]
-
-merge_bam_alignment_command = [
-    java, "-jar", picard_jar, "MergeBamAlignment",
-    "--ALIGNED_BAM", aligned_and_unmapped_bam,
-    "--UNMAPPED_BAM", unmapped_bam,
-    "--OUTPUT", merged_bam,
-    "--REFERENCE_SEQUENCE", reference_genome_fasta,
-    "--SORT_ORDER", "coordinate",
-    "--INCLUDE_SECONDARY_ALIGNMENTS", "false",
-    "--VALIDATION_STRINGENCY", "SILENT"
-]
-
-mark_duplicates_command = [
-    java, "-jar", picard_jar, "MarkDuplicates",
-    "--INPUT", merged_bam,
-    "--OUTPUT", marked_duplicates_bam,
-    "--METRICS_FILE", marked_dup_metrics_txt,
-    "--CREATE_INDEX", "true",
-    "--VALIDATION_STRINGENCY", "SILENT"
-]
-
-split_n_cigar_reads_command = [
-    gatk, "SplitNCigarReads",
-    "-R", reference_genome_fasta,
-    "-I", marked_duplicates_bam,
-    "-O", split_n_cigar_reads_bam
-]
-
-index_feature_file_command = [
-    gatk, "IndexFeatureFile",
-    "-I", genomes1000_vcf
-]
-
-base_recalibrator_command = [
-    gatk, "BaseRecalibrator",
-    "-I", split_n_cigar_reads_bam,
-    "-R", reference_genome_fasta,
-    "--use-original-qualities",
-    "--known-sites", genomes1000_vcf,
-    "-O", recal_data_table
-]
-
-apply_bqsr_command = [
-    gatk, "ApplyBQSR",
-    "--add-output-sam-program-record",
-    "-R", reference_genome_fasta,
-    "-I", split_n_cigar_reads_bam,
-    "--use-original-qualities",
-    "--bqsr-recal-file", recal_data_table,
-    "-O", recalibrated_bam
-]
-
-analyze_covariates_command = [
-    gatk, "AnalyzeCovariates",
-    "-bqsr", recal_data_table,
-    "-plots", covariates_plot
-]
-
-mutect2_command = [
-    gatk, "Mutect2",
-    "-R", reference_genome_fasta,
-    "-I", recalibrated_bam,
-    "-O", mutect2_unfiltered_vcf,
-    "--min-base-quality-score", "10"
-]
-
-filter_mutect_calls_command = [
-    gatk, "FilterMutectCalls",
-    "-R", reference_genome_fasta,
-    "-V", mutect2_unfiltered_vcf,
-    "-O", mutect2_filtered_vcf
-]
-
-select_variants_command = [
-    gatk, "SelectVariants",
-    "-V", mutect2_filtered_vcf,
-    "--exclude-filtered", "true",
-    "-O", mutect2_filtered_applied_vcf
-]
+reference_genome_dict = reference_genome_fasta.replace(".fa", ".dict")
 
 # commented out, as these should already be done prior to running this script
 reference_genome_fasta_url = "https://ftp.ensembl.org/pub/grch37/release-93/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.dna.primary_assembly.fa.gz"
@@ -266,50 +147,169 @@ if not os.path.exists(genomes1000_vcf):
     run_command_with_error_logging(download_1000_genomes_command)
     run_command_with_error_logging(unzip_1000_genomes_command)
 
+#* STAR Build
+star_build_command = [
+    STAR,
+    "--runThreadN", str(threads),
+    "--runMode", "genomeGenerate",
+    "--genomeDir", star_genome_dir,
+    "--genomeFastaFiles", reference_genome_fasta,
+    "--sjdbGTFfile", reference_genome_gtf,
+    "--sjdbOverhang", str(read_length_minus_one),
+]
 if not os.listdir(star_genome_dir):
     run_command_with_error_logging(star_build_command)
 
+#* Reference genome index file
 if not os.path.exists(f"{reference_genome_fasta}.fai"):
     _ = pysam.faidx(reference_genome_fasta)
 # commented out, as these should already be done prior to running this script
 
-
-
+#* STAR Alignment
+star_align_command = [
+    STAR,
+    "--runThreadN", str(threads),
+    "--genomeDir", star_genome_dir,
+    "--readFilesIn", synthetic_read_fastq,
+    "--sjdbOverhang", str(read_length_minus_one),
+    "--outFileNamePrefix", out_file_name_prefix,
+    "--outSAMtype", "BAM", "SortedByCoordinate",
+    "--outSAMunmapped", "Within",
+    "--outSAMmapqUnique", "60",
+    "--twopassMode", "Basic"
+]
 if not os.path.exists(aligned_and_unmapped_bam):
     aligned_and_unmapped_bam = f"{out_file_name_prefix}Aligned.sortedByCoord.out.bam"
     run_command_with_error_logging(star_align_command)
 
+#* FASTQ to SAM
+fastq_to_sam_command = [
+    java, "-jar", picard_jar, "FastqToSam",
+    "-FASTQ", synthetic_read_fastq,
+    "-OUTPUT", unmapped_bam,
+    "-READ_GROUP_NAME", "rg1",
+    "-SAMPLE_NAME", "sample1",
+    "-LIBRARY_NAME", "lib1",
+    "-PLATFORM_UNIT", "unit1",
+    "-PLATFORM", "ILLUMINA",
+    "-SEQUENCING_CENTER", "center1"
+]
 if not os.path.exists(unmapped_bam):
     run_command_with_error_logging(fastq_to_sam_command)
 
+#* CreateSequenceDictionary
+create_sequence_dict_command = [
+    java, "-jar", picard_jar, "CreateSequenceDictionary",
+    "-R", reference_genome_fasta,
+    "-O", reference_genome_dict
+]
 if not os.path.exists(reference_genome_dict):
     run_command_with_error_logging(create_sequence_dict_command)
 
+#* MergeBamAlignment
+merge_bam_alignment_command = [
+    java, "-jar", picard_jar, "MergeBamAlignment",
+    "--ALIGNED_BAM", aligned_and_unmapped_bam,
+    "--UNMAPPED_BAM", unmapped_bam,
+    "--OUTPUT", merged_bam,
+    "--REFERENCE_SEQUENCE", reference_genome_fasta,
+    "--SORT_ORDER", "coordinate",
+    "--INCLUDE_SECONDARY_ALIGNMENTS", "false",
+    "--VALIDATION_STRINGENCY", "SILENT"
+]
 if not os.path.exists(merged_bam):
     run_command_with_error_logging(merge_bam_alignment_command)
 
+#* MarkDuplicates
+mark_duplicates_command = [
+    java, "-jar", picard_jar, "MarkDuplicates",
+    "--INPUT", merged_bam,
+    "--OUTPUT", marked_duplicates_bam,
+    "--METRICS_FILE", marked_dup_metrics_txt,
+    "--CREATE_INDEX", "true",
+    "--VALIDATION_STRINGENCY", "SILENT"
+]
 if not os.path.exists(marked_duplicates_bam):
     run_command_with_error_logging(mark_duplicates_command)
 
+#* SplitNCigarReads
+split_n_cigar_reads_command = [
+    gatk, "SplitNCigarReads",
+    "-R", reference_genome_fasta,
+    "-I", marked_duplicates_bam,
+    "-O", split_n_cigar_reads_bam
+]
 if not os.path.exists(split_n_cigar_reads_bam):
     run_command_with_error_logging(split_n_cigar_reads_command)
 
+#* IndexFeatureFile
+index_feature_file_command = [
+    gatk, "IndexFeatureFile",
+    "-I", genomes1000_vcf
+]
 if not os.path.exists(f"{genomes1000_vcf}.idx"):
     run_command_with_error_logging(index_feature_file_command)
 
+#* BaseRecalibrator
+base_recalibrator_command = [
+    gatk, "BaseRecalibrator",
+    "-I", split_n_cigar_reads_bam,
+    "-R", reference_genome_fasta,
+    "--use-original-qualities",
+    "--known-sites", genomes1000_vcf,
+    "-O", recal_data_table
+]
 if not os.path.exists(recal_data_table):
     run_command_with_error_logging(base_recalibrator_command)
 
+#* ApplyBQSR
+apply_bqsr_command = [
+    gatk, "ApplyBQSR",
+    "--add-output-sam-program-record",
+    "-R", reference_genome_fasta,
+    "-I", split_n_cigar_reads_bam,
+    "--use-original-qualities",
+    "--bqsr-recal-file", recal_data_table,
+    "-O", recalibrated_bam
+]
 if not os.path.exists(recalibrated_bam):
     run_command_with_error_logging(apply_bqsr_command)
 
+#* AnalyzeCovariates
+analyze_covariates_command = [
+    gatk, "AnalyzeCovariates",
+    "-bqsr", recal_data_table,
+    "-plots", covariates_plot
+]
 if not os.path.exists(covariates_plot):
     run_command_with_error_logging(analyze_covariates_command)
 
+#* Mutect2
+mutect2_command = [
+    gatk, "Mutect2",
+    "-R", reference_genome_fasta,
+    "-I", recalibrated_bam,
+    "-O", mutect2_unfiltered_vcf,
+    "--min-base-quality-score", "10"
+]
 run_command_with_error_logging(mutect2_command)
 
+#* FilterMutectCalls
+filter_mutect_calls_command = [
+    gatk, "FilterMutectCalls",
+    "-R", reference_genome_fasta,
+    "-V", mutect2_unfiltered_vcf,
+    "-O", mutect2_filtered_vcf
+]
 run_command_with_error_logging(filter_mutect_calls_command)
 
+#* SelectVariants
+select_variants_command = [
+    gatk, "SelectVariants",
+    "-V", mutect2_filtered_vcf,
+    "--exclude-filtered", "true",
+    "-O", mutect2_filtered_applied_vcf
+]
 run_command_with_error_logging(select_variants_command)
 
 if skip_accuracy_analysis:
