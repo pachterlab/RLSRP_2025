@@ -16,6 +16,16 @@ from RLSRWP_2025.visualization_utils import (
     plot_knn_tissue_frequencies,
 )
 
+from varseek.utils import (
+    calculate_metrics,
+    calculate_sensitivity_specificity,
+    create_venn_diagram,
+    draw_confusion_matrix,
+    merge_gatk_and_cosmic,
+    safe_literal_eval,
+    vcf_to_dataframe,
+)
+
 # tqdm.pandas()
 
 def compute_intersection(set1, set2):
@@ -407,3 +417,79 @@ def create_mutated_gene_count_matrix_from_mutation_count_matrix(adata, sum_strat
     adata_gene.var[count_column] = adata_gene.X.sum(axis=0).A1 if hasattr(adata_gene.X, "A1") else np.asarray(adata_gene.X.sum(axis=0)).flatten()
 
     return adata_gene
+
+
+def perform_analysis(vcf_file, unique_mcrs_df_path, cosmic_df, plot_output_folder = "plots", unique_mcrs_df_path_out = None, package_name = "tool"):
+    if not unique_mcrs_df_path_out:
+        unique_mcrs_df_path_out = unique_mcrs_df_path
+        # unique_mcrs_df_out = unique_mcrs_df_path.replace(".csv", f"_with_{package_name}.csv")
+
+    #* Merging into COSMIC
+    # Convert VCF to DataFrame
+    df_tool = vcf_to_dataframe(vcf_file, additional_columns = True)
+    df_tool = df_tool[['CHROM', 'POS', 'ID', 'REF', 'ALT', 'INFO_DP']].rename(columns={'INFO_DP': f'DP_{package_name}'})
+
+    # load in unique_mcrs_df
+    unique_mcrs_df = pd.read_csv(unique_mcrs_df_path)
+    unique_mcrs_df["header_list"] = unique_mcrs_df["header_list"].apply(safe_literal_eval)
+
+    tool_cosmic_merged_df = merge_gatk_and_cosmic(df_tool, cosmic_df, exact_position=False)  # change exact_position to True to merge based on exact position as before
+    id_set_tool = set(tool_cosmic_merged_df['ID'])
+
+    # Merge DP values into unique_mcrs_df
+    # Step 1: Remove rows with NaN values in 'ID' column
+    tool_cosmic_merged_df_for_merging = tool_cosmic_merged_df[['ID', f'DP_{package_name}']].dropna(subset=['ID']).rename(columns={'ID': 'vcrs_header'})
+
+    # Step 2: Drop duplicates from 'ID' column
+    tool_cosmic_merged_df_for_merging = tool_cosmic_merged_df_for_merging.drop_duplicates(subset=['vcrs_header'])
+
+    # Step 3: Left merge with unique_mcrs_df
+    unique_mcrs_df = pd.merge(
+        unique_mcrs_df,               # Left DataFrame
+        tool_cosmic_merged_df_for_merging,         # Right DataFrame
+        on='vcrs_header',
+        how='left'
+    )
+
+    number_of_mutations_tool = len(df_tool.drop_duplicates(subset=['CHROM', 'POS', 'REF', 'ALT']))
+    number_of_cosmic_mutations_tool = len(tool_cosmic_merged_df.drop_duplicates(subset=['CHROM', 'POS', 'REF', 'ALT']))
+
+    # unique_mcrs_df['header_list'] each contains a list of strings. I would like to make a new column unique_mcrs_df[f'mutation_detected_{package_name}'] where each row is True if any value from the list unique_mcrs_df['vcrs_header'] is in the set id_set_mut  # keep in mind that my IDs are the mutation headers (ENST...), NOT mcrs headers or mcrs ids
+    unique_mcrs_df[f'mutation_detected_{package_name}'] = unique_mcrs_df['header_list'].apply(
+        lambda header_list: any(header in id_set_tool for header in header_list)
+    )
+
+    # calculate expression error
+    unique_mcrs_df['mutation_expression_prediction_error'] = unique_mcrs_df[f'DP_{package_name}'] - unique_mcrs_df['number_of_reads_mutant']  # positive means overpredicted, negative means underpredicted
+
+    unique_mcrs_df['TP'] = (unique_mcrs_df['included_in_synthetic_reads_mutant'] & unique_mcrs_df[f'mutation_detected_{package_name}'])
+    unique_mcrs_df['FP'] = (~unique_mcrs_df['included_in_synthetic_reads_mutant'] & unique_mcrs_df[f'mutation_detected_{package_name}'])
+    unique_mcrs_df['FN'] = (unique_mcrs_df['included_in_synthetic_reads_mutant'] & ~unique_mcrs_df[f'mutation_detected_{package_name}'])
+    unique_mcrs_df['TN'] = (~unique_mcrs_df['included_in_synthetic_reads_mutant'] & ~unique_mcrs_df[f'mutation_detected_{package_name}'])
+
+    tool_stat_path = f"{plot_output_folder}/reference_metrics_{package_name}.txt"
+    metric_dictionary_reference = calculate_metrics(unique_mcrs_df, header_name = "vcrs_header", check_assertions = False, out = tool_stat_path)
+    draw_confusion_matrix(metric_dictionary_reference)
+
+    true_set = set(unique_mcrs_df.loc[unique_mcrs_df['included_in_synthetic_reads_mutant'], 'vcrs_header'])
+    positive_set = set(unique_mcrs_df.loc[unique_mcrs_df[f'mutation_detected_{package_name}'], 'vcrs_header'])
+    create_venn_diagram(true_set, positive_set, TN = metric_dictionary_reference['TN'], out_path = f"{plot_output_folder}/venn_diagram_reference_cosmic_only_{package_name}.png")
+
+    noncosmic_mutation_id_set = {f'{package_name}_fp_{i}' for i in range(1, number_of_mutations_tool - number_of_cosmic_mutations_tool + 1)}
+
+    positive_set_including_noncosmic_mutations = positive_set.union(noncosmic_mutation_id_set)
+    false_positive_set = set(unique_mcrs_df.loc[unique_mcrs_df['FP'], 'vcrs_header'])
+    false_positive_set_including_noncosmic_mutations = false_positive_set.union(noncosmic_mutation_id_set)
+
+    FP_including_noncosmic = len(false_positive_set_including_noncosmic_mutations)
+    accuracy, sensitivity, specificity = calculate_sensitivity_specificity(metric_dictionary_reference['TP'], metric_dictionary_reference['TN'], FP_including_noncosmic, metric_dictionary_reference['FN'])
+
+    with open(tool_stat_path, "a", encoding="utf-8") as file:
+        file.write(f"FP including non-cosmic: {FP_including_noncosmic}\n")
+        file.write(f"accuracy including non-cosmic: {accuracy}\n")
+        file.write(f"specificity including non-cosmic: {specificity}\n")
+
+    create_venn_diagram(true_set, positive_set_including_noncosmic_mutations, TN = metric_dictionary_reference['TN'], out_path = f"{plot_output_folder}/venn_diagram_reference_including_noncosmics_{package_name}.png")
+
+    unique_mcrs_df.rename(columns={'TP': f'TP_{package_name}', 'FP': f'FP_{package_name}', 'TN': f'TN_{package_name}', 'FN': f'FN_{package_name}', 'mutation_expression_prediction_error': f'mutation_expression_prediction_error_{package_name}'}, inplace=True)
+    unique_mcrs_df.to_csv(unique_mcrs_df_out, index=False)

@@ -19,7 +19,7 @@ os.environ['COSMIC_EMAIL'] = 'your_email'  # replace with your email
 
 random_seed = 42
 script_dir = os.path.dirname(os.path.abspath(__file__))  # make sure I have the right script directory
-vk_ref_script_path = os.path.join(script_dir, "run_varseek_ref_for_benchmarking_time_and_memory.py")
+vk_ref_script_path = os.path.join(script_dir, "run_varseek_ref_for_benchmarking.py")
 
 
 # download reference genome

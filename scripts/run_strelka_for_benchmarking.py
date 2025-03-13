@@ -1,11 +1,13 @@
+import argparse
 import os
-import subprocess
+import sys
 
-import pandas as pd
 import pysam
-varseek_directory = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+import pandas as pd
+import shutil
 
 from varseek.utils import (
+    run_command_with_error_logging,
     add_vcf_info_to_cosmic_tsv,
     calculate_metrics,
     calculate_sensitivity_specificity,
@@ -16,76 +18,59 @@ from varseek.utils import (
     vcf_to_dataframe,
 )
 
-run_benchmarking = False  #!!! change to True when finished debugging the variant calling pipeline
-
-### ARGUMENTS ###
-threads = 4
-read_length = 150
-mutation_source = "cdna"  # "cdna", "cds"
+parser = argparse.ArgumentParser(description="Run Strelka2 on a set of reads and report the time and memory usage")
 
 # Paths
-out_dir_notebook = os.path.join(varseek_directory, "data", "simulated_data_output")  #* make sure this matches notebook 2
-reference_out_dir = os.path.join(varseek_directory, "data", "reference")
-synthetic_read_fastq = os.path.join(out_dir_notebook, "synthetic_reads.fq")
-unique_mcrs_df_path = os.path.join(out_dir_notebook, "unique_mcrs_df.csv")
-strelka2_output_dir = os.path.join(varseek_directory, "data", "strelka2_simulated_data_dir")  #!!! change for each run
+parser.add_argument("--synthetic_read_fastq", help="Path to synthetic read FASTQ")
+parser.add_argument("--reference_genome_fasta", help="Path to reference genome fasta")
+parser.add_argument("--reference_genome_gtf", help="Path to reference genome GTF")
+parser.add_argument("--star_genome_dir", default="", help="Path to star_genome_dir")
+parser.add_argument("--aligned_and_unmapped_bam", default="", help="Path to aligned_and_unmapped_bam. If not provided, will be created")
+parser.add_argument("--tmp", default="tmp", help="Path to temp folder")
 
-cosmic_tsv = os.path.join(reference_out_dir, "cosmic", "CancerMutationCensus_AllData_Tsv_v100_GRCh37_v2", "CancerMutationCensus_AllData_v100_GRCh37.tsv")
-cosmic_cdna_info_csv = os.path.join(reference_out_dir, "cosmic", "CancerMutationCensus_AllData_Tsv_v100_GRCh37_v2", "CancerMutationCensus_AllData_v100_GRCh37_mutation_workflow_with_cdna.csv")
+# Parameters
+parser.add_argument("--threads", default=2, help="Number of threads")
+parser.add_argument("--read_length", default=150, help="Read length")
+parser.add_argument("--skip_accuracy_analysis", action="store_true", help="Skip accuracy analysis (beyond simple time and memory benchmarking)")
 
-# if these paths don't exist then they will be created
-reference_genome_fasta = os.path.join(reference_out_dir, "ensembl_grch37_release93", "Homo_sapiens.GRCh37.dna.primary_assembly.fa")
-reference_genome_gtf = os.path.join(reference_out_dir, "ensembl_grch37_release93", "Homo_sapiens.GRCh37.87.gtf")
-ensembl_germline_vcf = os.path.join(reference_out_dir, "ensembl_grch37_release93", "homo_sapiens.vcf")
-star_genome_dir = os.path.join(reference_out_dir, "ensembl_grch37_release93", "star_reference")
-star_alignment_dir = os.path.join(out_dir_notebook, "star_alignment")
+# Executables
+parser.add_argument("--STAR", default="STAR", help="Path to STAR executable")
+parser.add_argument("--STRELKA_INSTALL_PATH", default="STRELKA_INSTALL_PATH", help="Path to STRELKA_INSTALL_PATH parent")
 
-# Software package paths
-STAR = "STAR"  # /home/jrich/opt/STAR-2.7.11b/bin/Linux_x86_64/STAR
-STRELKA_INSTALL_PATH = "strelka-2.9.10.centos6_x86_64"
-### ARGUMENTS ###
+# Just for accuracy analysis
+parser.add_argument("--cosmic_tsv", help="Path to COSMIC tsv")
+parser.add_argument("--cosmic_cdna_info_csv", help="Path to COSMIC csv with cdna info from gget cosmic")
+parser.add_argument("--unique_mcrs_df_path", help="Path to unique_mcrs_df_path from notebook 2")
 
-strelka2_benchmarking_output = os.path.join(strelka2_output_dir, "benchmarking")
 
-os.makedirs(star_genome_dir, exist_ok=True)
-os.makedirs(star_alignment_dir, exist_ok=True)
+args = parser.parse_args()
+
+star_genome_dir = args.star_genome_dir if args.star_genome_dir else os.path.join(args.tmp, "star_genome")
+strelka2_output_dir = os.path.join(args.tmp, "strelka2_simulated_data_dir")
+reference_genome_fasta = args.reference_genome_fasta
+reference_genome_gtf = args.reference_genome_gtf
+threads = args.threads
+read_length_minus_one = args.read_length - 1
+skip_accuracy_analysis = args.skip_accuracy_analysis
+synthetic_read_fastq = args.synthetic_read_fastq
+aligned_and_unmapped_bam = args.aligned_and_unmapped_bam
+
+STAR = args.STAR
+STRELKA_INSTALL_PATH = args.STRELKA_INSTALL_PATH
+
+cosmic_tsv = args.cosmic_tsv
+cosmic_cdna_info_csv = args.cosmic_cdna_info_csv
+unique_mcrs_df_path = args.unique_mcrs_df_path
+
+for name, path in {"STAR": STAR, "STRELKA_INSTALL_PATH": STRELKA_INSTALL_PATH}.items():
+    if not os.path.exists(path) and not shutil.which(path):
+        raise FileNotFoundError(f"{name} not found or installed properly.")
+
 os.makedirs(strelka2_output_dir, exist_ok=True)
-os.makedirs(strelka2_benchmarking_output, exist_ok=True)
+os.makedirs(star_genome_dir, exist_ok=True)
 
-out_file_name_prefix = f"{star_alignment_dir}/sample_"
-aligned_and_unmapped_bam = f"{out_file_name_prefix}Aligned.sortedByCoord.out.bam"
-read_length_minus_one = read_length - 1
-# star_tarball = os.path.join(opt_dir, "2.7.11b.tar.gz")
-# strelka_tarball = f"{STRELKA_INSTALL_PATH}.tar.bz2"
-
-strelka2_vcf = os.path.join(strelka2_output_dir, "results/variants/genome.vcf.gz")
-
-#* Download software and reference files
-if not os.path.exists(reference_genome_fasta):
-    reference_genome_fasta_url = "https://ftp.ensembl.org/pub/grch37/release-93/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.dna.primary_assembly.fa.gz"
-    download_reference_genome_fasta_command = ["wget", "-O", f"{reference_genome_fasta}.gz", reference_genome_fasta_url]
-    unzip_reference_genome_fasta_command = ["gunzip", "-O", f"{reference_genome_fasta}.gz"]
-
-    subprocess.run(download_reference_genome_fasta_command, check=True)
-    subprocess.run(unzip_reference_genome_fasta_command, check=True)
-
-if not os.path.exists(reference_genome_gtf):
-    reference_genome_gtf_url = "https://ftp.ensembl.org/pub/grch37/release-93/gtf/homo_sapiens/Homo_sapiens.GRCh37.87.gtf.gz"
-    download_reference_genome_gtf_command = ["wget", "-O", f"{reference_genome_gtf}.gz", reference_genome_gtf_url]
-    unzip_reference_genome_gtf_command = ["gunzip", "-O", f"{reference_genome_gtf}.gz"]
-
-    subprocess.run(download_reference_genome_gtf_command, check=True)
-    subprocess.run(unzip_reference_genome_gtf_command, check=True)
-
-# if not os.path.exists(STAR):
-#     subprocess.run(["wget", "-O", star_tarball, "https://github.com/alexdobin/STAR/archive/2.7.11b.tar.gz"], check=True)
-#     subprocess.run(["tar", "-xzf", star_tarball, "-C", opt_dir], check=True)
-
-# if not os.path.exists(STRELKA_INSTALL_PATH):
-#     subprocess.run(["wget", "-O", strelka_tarball, "https://github.com/Illumina/strelka/releases/download/v2.9.10/strelka-2.9.10.centos6_x86_64.tar.bz2"], check=True)
-#     subprocess.run(["tar", "-xvjf", strelka_tarball, "-C", opt_dir], check=True)
-#     # subprocess.run(['bash', os.path.join(STRELKA_INSTALL_PATH, 'bin/runStrelkaSomaticWorkflowDemo.bash')], check=True)
-#     # subprocess.run(['bash', os.path.join(STRELKA_INSTALL_PATH, 'bin/runStrelkaGermlineWorkflowDemo.bash')], check=True)
+alignment_folder = f"{strelka2_output_dir}/alignment"
+out_file_name_prefix = f"{alignment_folder}/sample_"
 
 #* Genome alignment with STAR
 star_build_command = [
@@ -97,9 +82,6 @@ star_build_command = [
     "--sjdbGTFfile", reference_genome_gtf,
     "--sjdbOverhang", str(read_length_minus_one),
 ]
-
-if not os.listdir(star_genome_dir):
-    subprocess.run(star_build_command, check=True)
 
 star_align_command = [
     STAR,
@@ -114,18 +96,6 @@ star_align_command = [
     "--twopassMode", "Basic"
 ]
 
-if not os.path.exists(aligned_and_unmapped_bam):
-    subprocess.run(star_align_command, check=True)
-
-#* Index reference genome
-if not os.path.exists(f"{reference_genome_fasta}.fai"):
-    _ = pysam.faidx(reference_genome_fasta)
-
-#* Index BAM file
-bam_index_file = f"{aligned_and_unmapped_bam}.bai"
-if not os.path.exists(bam_index_file):
-    _ = pysam.index(aligned_and_unmapped_bam)
-
 #* Strelka2 variant calling
 strelka2_configure_command = [
     f"{STRELKA_INSTALL_PATH}/bin/configureStrelkaGermlineWorkflow.py",
@@ -134,21 +104,41 @@ strelka2_configure_command = [
     "--rna",
     "--runDir", strelka2_output_dir
 ]
-subprocess.run(strelka2_configure_command, check=True)
 
 strelka2_run_command = [
     f"{strelka2_output_dir}/runWorkflow.py",
     "-m", "local",
     "-j", str(threads)
 ]
-subprocess.run(strelka2_run_command, check=True)
 
-if not run_benchmarking:
-    print("Skipping benchmarking")
-    exit()
+
+# commented out, as these should already be done prior to running this script
+if not os.listdir(star_genome_dir):
+    run_command_with_error_logging(star_build_command)
+
+if not os.path.exists(f"{reference_genome_fasta}.fai"):
+    _ = pysam.faidx(reference_genome_fasta)
+
+if not os.path.exists(aligned_and_unmapped_bam):
+    aligned_and_unmapped_bam = f"{out_file_name_prefix}Aligned.sortedByCoord.out.bam"
+    os.makedirs(alignment_folder, exist_ok=True)
+    run_command_with_error_logging(star_align_command)
+
+bam_index_file = f"{aligned_and_unmapped_bam}.bai"
+if not os.path.exists(bam_index_file):
+    _ = pysam.index(aligned_and_unmapped_bam)
+
+run_command_with_error_logging(strelka2_configure_command)
+
+run_command_with_error_logging(strelka2_run_command)
+
+if skip_accuracy_analysis:
+    print("Skipping accuracy analysis")
+    sys.exit()
 
 #* Merging into COSMIC
 # Convert VCF to DataFrame
+strelka2_vcf = "output.vcf"  #!!!! change
 df_strelka2 = vcf_to_dataframe(strelka2_vcf, additional_columns = True)
 df_strelka2 = df_strelka2[['CHROM', 'POS', 'ID', 'REF', 'ALT', 'INFO_DP']].rename(columns={'INFO_DP': 'DP_strelka2'})
 
@@ -192,13 +182,13 @@ unique_mcrs_df['FP'] = (~unique_mcrs_df['included_in_synthetic_reads_mutant'] & 
 unique_mcrs_df['FN'] = (unique_mcrs_df['included_in_synthetic_reads_mutant'] & ~unique_mcrs_df['mutation_detected_strelka2'])
 unique_mcrs_df['TN'] = (~unique_mcrs_df['included_in_synthetic_reads_mutant'] & ~unique_mcrs_df['mutation_detected_strelka2'])
 
-strelka2_stat_path = f"{strelka2_benchmarking_output}/reference_metrics_strelka2.txt"
+strelka2_stat_path = f"{strelka2_output_dir}/reference_metrics_strelka2.txt"
 metric_dictionary_reference = calculate_metrics(unique_mcrs_df, header_name = "vcrs_header", check_assertions = False, out = strelka2_stat_path)
 draw_confusion_matrix(metric_dictionary_reference)
 
 true_set = set(unique_mcrs_df.loc[unique_mcrs_df['included_in_synthetic_reads_mutant'], 'vcrs_header'])
 positive_set = set(unique_mcrs_df.loc[unique_mcrs_df['mutation_detected_strelka2'], 'vcrs_header'])
-create_venn_diagram(true_set, positive_set, TN = metric_dictionary_reference['TN'], out_path = f"{strelka2_benchmarking_output}/venn_diagram_reference_cosmic_only_strelka2.png")
+create_venn_diagram(true_set, positive_set, TN = metric_dictionary_reference['TN'], out_path = f"{strelka2_output_dir}/venn_diagram_reference_cosmic_only_strelka2.png")
 
 noncosmic_mutation_id_set = {f'strelka2_fp_{i}' for i in range(1, number_of_mutations_strelka2 - number_of_cosmic_mutations_strelka2 + 1)}
 
@@ -216,7 +206,7 @@ with open(strelka2_stat_path, "a", encoding="utf-8") as file:
 
 
 
-create_venn_diagram(true_set, positive_set_including_noncosmic_mutations, TN = metric_dictionary_reference['TN'], out_path = f"{strelka2_benchmarking_output}/venn_diagram_reference_including_noncosmics_strelka2.png")
+create_venn_diagram(true_set, positive_set_including_noncosmic_mutations, TN = metric_dictionary_reference['TN'], out_path = f"{strelka2_output_dir}/venn_diagram_reference_including_noncosmics_strelka2.png")
 
 unique_mcrs_df.rename(columns={'TP': 'TP_strelka2', 'FP': 'FP_strelka2', 'TN': 'TN_strelka2', 'FN': 'FN_strelka2', 'mutation_expression_prediction_error': 'mutation_expression_prediction_error_strelka2'}, inplace=True)
 
