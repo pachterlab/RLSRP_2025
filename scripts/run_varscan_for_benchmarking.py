@@ -21,7 +21,7 @@ parser.add_argument("--reference_genome_fasta", help="Path to reference genome f
 parser.add_argument("--reference_genome_gtf", help="Path to reference genome GTF")
 parser.add_argument("--star_genome_dir", default="", help="Path to star_genome_dir")
 parser.add_argument("--aligned_and_unmapped_bam", default="", help="Path to aligned_and_unmapped_bam. If not provided, will be created")
-parser.add_argument("--tmp", default="tmp", help="Path to temp folder")
+parser.add_argument("--out", default="out", help="Path to out folder")
 
 # Parameters
 parser.add_argument("--threads", default=2, help="Number of threads")
@@ -39,8 +39,8 @@ parser.add_argument("--unique_mcrs_df_path", help="Path to unique_mcrs_df_path f
 
 args = parser.parse_args()
 
-star_genome_dir = args.star_genome_dir if args.star_genome_dir else os.path.join(args.tmp, "star_genome")
-varscan_output_dir = os.path.join(args.tmp, "varscan_simulated_data_dir")
+star_genome_dir = args.star_genome_dir if args.star_genome_dir else os.path.join(args.out, "star_genome")
+varscan_output_dir = os.path.join(args.out, "varscan_simulated_data_dir")
 reference_genome_fasta = args.reference_genome_fasta
 reference_genome_gtf = args.reference_genome_gtf
 threads = args.threads
@@ -123,6 +123,6 @@ if skip_accuracy_analysis:
     print("Skipping accuracy analysis")
     sys.exit()
 
-varscan_vcf = "output.vcf"  #!!!! change
+vcf_file = "output.vcf"  #!!!! change
 cosmic_df = add_vcf_info_to_cosmic_tsv(cosmic_tsv=cosmic_tsv, reference_genome_fasta=reference_genome_fasta, cosmic_df_out = None, cosmic_cdna_info_csv = cosmic_cdna_info_csv, mutation_source = "cdna")
-perform_analysis(vcf_file=varscan_vcf, unique_mcrs_df_path=unique_mcrs_df_path, cosmic_df=cosmic_df, plot_output_folder=varscan_output_dir, unique_mcrs_df_path_out = None, package_name = "varscan")
+perform_analysis(vcf_file=vcf_file, unique_mcrs_df_path=unique_mcrs_df_path, cosmic_df=cosmic_df, plot_output_folder=varscan_output_dir, package_name = "varscan")

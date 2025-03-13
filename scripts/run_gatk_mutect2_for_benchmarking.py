@@ -6,16 +6,11 @@ import shutil
 import pysam
 import pandas as pd
 
+from RLSRWP_2025.seq_utils import perform_analysis
+
 from varseek.utils import (
     run_command_with_error_logging,
     add_vcf_info_to_cosmic_tsv,
-    calculate_metrics,
-    calculate_sensitivity_specificity,
-    create_venn_diagram,
-    draw_confusion_matrix,
-    merge_gatk_and_cosmic,
-    safe_literal_eval,
-    vcf_to_dataframe,
     splitext_custom
 )
 
@@ -28,7 +23,7 @@ parser.add_argument("--reference_genome_gtf", help="Path to reference genome GTF
 parser.add_argument("--genomes1000_vcf", help="Path to 1000 genomes vcf file")
 parser.add_argument("--star_genome_dir", default="", help="Path to star_genome_dir")
 parser.add_argument("--aligned_and_unmapped_bam", default="", help="Path to aligned_and_unmapped_bam. If not provided, will be created")
-parser.add_argument("--tmp", default="tmp", help="Path to temp folder")
+parser.add_argument("--out", default="out", help="Path to out folder")
 
 # Parameters
 parser.add_argument("--threads", default=2, help="Number of threads")
@@ -50,8 +45,8 @@ parser.add_argument("--unique_mcrs_df_path", help="Path to unique_mcrs_df_path f
 
 args = parser.parse_args()
 
-star_genome_dir = args.star_genome_dir if args.star_genome_dir else os.path.join(args.tmp, "star_genome")
-gatk_parent = os.path.join(args.tmp, "gatk")
+star_genome_dir = args.star_genome_dir if args.star_genome_dir else os.path.join(args.out, "star_genome")
+gatk_parent = os.path.join(args.out, "gatk_mutect2")
 reference_genome_fasta = args.reference_genome_fasta
 reference_genome_gtf = args.reference_genome_gtf
 genomes1000_vcf = args.genomes1000_vcf
@@ -94,11 +89,10 @@ os.makedirs(plot_output_folder, exist_ok=True)
 out_file_name_prefix = f"{alignment_folder}/sample_"
 
 vcf_folder = f"{gatk_parent}/vcfs"
-haplotypecaller_folder = f"{vcf_folder}/haplotypecaller"
+mutect2_folder = f"{vcf_folder}/mutect2"
 mutect2_folder = f"{vcf_folder}/mutect2"
 
 os.makedirs(vcf_folder, exist_ok=True)
-os.makedirs(haplotypecaller_folder, exist_ok=True)
 os.makedirs(mutect2_folder, exist_ok=True)
 
 aligned_only_bam = f"{alignment_folder}/aligned_only.bam"
@@ -112,10 +106,10 @@ split_n_cigar_reads_bam = f"{alignment_folder}/split_n_cigar_reads.bam"
 recal_data_table = f"{alignment_folder}/recal_data.table"
 recalibrated_bam = f"{alignment_folder}/recalibrated.bam"
 covariates_plot = f"{alignment_folder}/AnalyzeCovariates.pdf"
-haplotypecaller_unfiltered_vcf = f"{haplotypecaller_folder}/haplotypecaller_output_unfiltered.g.vcf.gz"
+mutect2_unfiltered_vcf = f"{mutect2_folder}/mutect2_output_unfiltered.g.vcf.gz"
 
-haplotypecaller_filtered_vcf = f"{haplotypecaller_folder}/haplotypecaller_output_filtered.vcf.gz"
-haplotypecaller_filtered_applied_vcf = f"{haplotypecaller_folder}/haplotypecaller_output_filtered_applied.vcf.gz"
+mutect2_filtered_vcf = f"{mutect2_folder}/mutect2_output_filtered.vcf.gz"
+mutect2_filtered_applied_vcf = f"{mutect2_folder}/mutect2_output_filtered_applied.vcf.gz"
 
 panel_of_normals_vcf = f"{gatk_supporting_files}/1000g_pon.hg38.vcf.gz"
 panel_of_normals_vcf_filtered = f"{gatk_supporting_files}/1000g_pon.hg38_filtered.vcf.gz"
@@ -322,76 +316,6 @@ if skip_accuracy_analysis:
     print("Skipping accuracy analysis")
     sys.exit()
 
-#* Merging into COSMIC
-mutect2_vcf_final = mutect2_filtered_applied_vcf if apply_mutation_filters else mutect2_unfiltered_vcf
-df_mut = vcf_to_dataframe(mutect2_vcf_final, additional_columns = True)
-df_mut = df_mut[['CHROM', 'POS', 'ID', 'REF', 'ALT', 'INFO_DP']].rename(columns={'INFO_DP': 'DP_gatk_mutect2'})
-
+vcf_file = mutect2_filtered_applied_vcf if apply_mutation_filters else mutect2_unfiltered_vcf
 cosmic_df = add_vcf_info_to_cosmic_tsv(cosmic_tsv=cosmic_tsv, reference_genome_fasta=reference_genome_fasta, cosmic_df_out = None, cosmic_cdna_info_csv = cosmic_cdna_info_csv, mutation_source = "cdna")
-
-# load in unique_mcrs_df
-unique_mcrs_df = pd.read_csv(unique_mcrs_df_path)
-unique_mcrs_df["header_list"] = unique_mcrs_df["header_list"].apply(safe_literal_eval)
-
-mut_cosmic_merged_df = merge_gatk_and_cosmic(df_mut, cosmic_df, exact_position=False)  # change exact_position to True to merge based on exact position as before
-id_set_mut = set(mut_cosmic_merged_df['ID'])
-
-# Merge DP values into unique_mcrs_df
-# Step 1: Remove rows with NaN values in 'ID' column
-mutect2_cosmic_merged_df_for_merging = mut_cosmic_merged_df[['ID', 'DP_gatk_mutect2']].dropna(subset=['ID']).rename(columns={'ID': 'vcrs_header'})
-
-# Step 2: Drop duplicates from 'ID' column
-mutect2_cosmic_merged_df_for_merging = mutect2_cosmic_merged_df_for_merging.drop_duplicates(subset=['vcrs_header'])
-
-# Step 3: Left merge with unique_mcrs_df
-unique_mcrs_df = pd.merge(
-    unique_mcrs_df,               # Left DataFrame
-    mutect2_cosmic_merged_df_for_merging,         # Right DataFrame
-    on='vcrs_header',
-    how='left'
-)
-
-number_of_mutations_mutect = len(df_mut.drop_duplicates(subset=['CHROM', 'POS', 'REF', 'ALT']))
-number_of_cosmic_mutations_mutect = len(mut_cosmic_merged_df.drop_duplicates(subset=['CHROM', 'POS', 'REF', 'ALT']))
-
-# unique_mcrs_df['header_list'] each contains a list of strings. I would like to make a new column unique_mcrs_df['mutation_detected_gatk_mutect2'] where each row is True if any value from the list unique_mcrs_df['vcrs_header'] is in the set id_set_mut  # keep in mind that my IDs are the mutation headers (ENST...), NOT mcrs headers or mcrs ids
-unique_mcrs_df['mutation_detected_gatk_mutect2'] = unique_mcrs_df['header_list'].apply(
-    lambda header_list: any(header in id_set_mut for header in header_list)
-)
-
-# calculate expression error
-unique_mcrs_df['mutation_expression_prediction_error'] = unique_mcrs_df['DP_gatk_mutect2'] - unique_mcrs_df['number_of_reads_mutant']  # positive means overpredicted, negative means underpredicted
-
-unique_mcrs_df['TP'] = (unique_mcrs_df['included_in_synthetic_reads_mutant'] & unique_mcrs_df['mutation_detected_gatk_mutect2'])
-unique_mcrs_df['FP'] = (~unique_mcrs_df['included_in_synthetic_reads_mutant'] & unique_mcrs_df['mutation_detected_gatk_mutect2'])
-unique_mcrs_df['FN'] = (unique_mcrs_df['included_in_synthetic_reads_mutant'] & ~unique_mcrs_df['mutation_detected_gatk_mutect2'])
-unique_mcrs_df['TN'] = (~unique_mcrs_df['included_in_synthetic_reads_mutant'] & ~unique_mcrs_df['mutation_detected_gatk_mutect2'])
-
-mutect_stat_path = f"{plot_output_folder}/reference_metrics_mutect2.txt"
-metric_dictionary_reference = calculate_metrics(unique_mcrs_df, header_name = "vcrs_header", check_assertions = False, out = mutect_stat_path)
-draw_confusion_matrix(metric_dictionary_reference)
-
-true_set = set(unique_mcrs_df.loc[unique_mcrs_df['included_in_synthetic_reads_mutant'], 'vcrs_header'])
-positive_set = set(unique_mcrs_df.loc[unique_mcrs_df['mutation_detected_gatk_mutect2'], 'vcrs_header'])
-create_venn_diagram(true_set, positive_set, TN = metric_dictionary_reference['TN'], out_path = f"{plot_output_folder}/venn_diagram_reference_cosmic_only_mutect2.png")
-
-noncosmic_mutation_id_set = {f'mutect_fp_{i}' for i in range(1, number_of_mutations_mutect - number_of_cosmic_mutations_mutect + 1)}
-
-positive_set_including_noncosmic_mutations = positive_set.union(noncosmic_mutation_id_set)
-false_positive_set = set(unique_mcrs_df.loc[unique_mcrs_df['FP'], 'vcrs_header'])
-false_positive_set_including_noncosmic_mutations = false_positive_set.union(noncosmic_mutation_id_set)
-
-FP_including_noncosmic = len(false_positive_set_including_noncosmic_mutations)
-accuracy, sensitivity, specificity = calculate_sensitivity_specificity(metric_dictionary_reference['TP'], metric_dictionary_reference['TN'], FP_including_noncosmic, metric_dictionary_reference['FN'])
-
-with open(mutect_stat_path, "a") as file:
-    file.write(f"FP including non-cosmic: {FP_including_noncosmic}\n")
-    file.write(f"accuracy including non-cosmic: {accuracy}\n")
-    file.write(f"specificity including non-cosmic: {specificity}\n")
-
-create_venn_diagram(true_set, positive_set_including_noncosmic_mutations, TN = metric_dictionary_reference['TN'], out_path = f"{plot_output_folder}/venn_diagram_reference_including_noncosmics_mutect2.png")
-
-unique_mcrs_df.rename(columns={'TP': 'TP_gatk_mutect2', 'FP': 'FP_gatk_mutect2', 'TN': 'TN_gatk_mutect2', 'FN': 'FN_gatk_mutect2', 'mutation_expression_prediction_error': 'mutation_expression_prediction_error_gatk_mutect2'}, inplace=True)
-
-unique_mcrs_df_out = unique_mcrs_df_path.replace(".csv", "_with_varscan.csv")
-unique_mcrs_df.to_csv(unique_mcrs_df_out, index=False)
+perform_analysis(vcf_file=vcf_file, unique_mcrs_df_path=unique_mcrs_df_path, cosmic_df=cosmic_df, plot_output_folder=plot_output_folder, package_name="gatk_mutect2")

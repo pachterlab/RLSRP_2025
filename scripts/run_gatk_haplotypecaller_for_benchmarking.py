@@ -9,15 +9,10 @@ import pandas as pd
 from varseek.utils import (
     run_command_with_error_logging,
     add_vcf_info_to_cosmic_tsv,
-    calculate_metrics,
-    calculate_sensitivity_specificity,
-    create_venn_diagram,
-    draw_confusion_matrix,
-    merge_gatk_and_cosmic,
-    safe_literal_eval,
-    vcf_to_dataframe,
     splitext_custom
 )
+
+from RLSRWP_2025.seq_utils import perform_analysis
 
 parser = argparse.ArgumentParser(description="Run GATK Haplotypecaller on a set of reads and report the time and memory usage")
 
@@ -28,7 +23,7 @@ parser.add_argument("--reference_genome_gtf", help="Path to reference genome GTF
 parser.add_argument("--genomes1000_vcf", help="Path to 1000 genomes vcf file")
 parser.add_argument("--star_genome_dir", default="", help="Path to star_genome_dir")
 parser.add_argument("--aligned_and_unmapped_bam", default="", help="Path to aligned_and_unmapped_bam. If not provided, will be created")
-parser.add_argument("--tmp", default="tmp", help="Path to temp folder")
+parser.add_argument("--out", default="out", help="Path to out folder")
 
 # Parameters
 parser.add_argument("--threads", default=2, help="Number of threads")
@@ -50,8 +45,8 @@ parser.add_argument("--unique_mcrs_df_path", help="Path to unique_mcrs_df_path f
 
 args = parser.parse_args()
 
-star_genome_dir = args.star_genome_dir if args.star_genome_dir else os.path.join(args.tmp, "star_genome")
-gatk_parent = os.path.join(args.tmp, "gatk")
+star_genome_dir = args.star_genome_dir if args.star_genome_dir else os.path.join(args.out, "star_genome")
+gatk_parent = os.path.join(args.out, "gatk_haplotypecaller")
 reference_genome_fasta = args.reference_genome_fasta
 reference_genome_gtf = args.reference_genome_gtf
 genomes1000_vcf = args.genomes1000_vcf
@@ -333,76 +328,6 @@ if skip_accuracy_analysis:
     print("Skipping accuracy analysis")
     sys.exit()
 
-#* Merging into COSMIC
-haplotypecaller_vcf_final = haplotypecaller_filtered_applied_vcf if apply_mutation_filters else haplotypecaller_unfiltered_vcf
-df_hap = vcf_to_dataframe(haplotypecaller_vcf_final, additional_columns = True)
-df_hap = df_hap[['CHROM', 'POS', 'ID', 'REF', 'ALT', 'INFO_DP']].rename(columns={'INFO_DP': 'DP_gatk_haplotypecaller'})
-
+vcf_file = haplotypecaller_filtered_applied_vcf if apply_mutation_filters else haplotypecaller_unfiltered_vcf
 cosmic_df = add_vcf_info_to_cosmic_tsv(cosmic_tsv=cosmic_tsv, reference_genome_fasta=reference_genome_fasta, cosmic_df_out = None, cosmic_cdna_info_csv = cosmic_cdna_info_csv, mutation_source = "cdna")
-
-# load in unique_mcrs_df
-unique_mcrs_df = pd.read_csv(unique_mcrs_df_path)
-unique_mcrs_df["header_list"] = unique_mcrs_df["header_list"].apply(safe_literal_eval)
-
-hap_cosmic_merged_df = merge_gatk_and_cosmic(df_hap, cosmic_df, exact_position=False)  # change exact_position to True to merge based on exact position as before
-id_set_hap = set(hap_cosmic_merged_df['ID'])
-
-# Merge DP values into unique_mcrs_df
-# Step 1: Remove rows with NaN values in 'ID' column
-haplotypecaller_cosmic_merged_df_for_merging = hap_cosmic_merged_df[['ID', 'DP_gatk_haplotypecaller']].dropna(subset=['ID']).rename(columns={'ID': 'vcrs_header'})
-
-# Step 2: Drop duplicates from 'ID' column
-haplotypecaller_cosmic_merged_df_for_merging = haplotypecaller_cosmic_merged_df_for_merging.drop_duplicates(subset=['vcrs_header'])
-
-# Step 3: Left merge with unique_mcrs_df
-unique_mcrs_df = pd.merge(
-    unique_mcrs_df,               # Left DataFrame
-    haplotypecaller_cosmic_merged_df_for_merging,         # Right DataFrame
-    on='vcrs_header',
-    how='left'
-)
-
-number_of_mutations_haplotypecaller = len(df_hap.drop_duplicates(subset=['CHROM', 'POS', 'REF', 'ALT']))
-number_of_cosmic_mutations_haplotypecaller = len(hap_cosmic_merged_df.drop_duplicates(subset=['CHROM', 'POS', 'REF', 'ALT']))
-
-# unique_mcrs_df['header_list'] each contains a list of strings. I would like to make a new column unique_mcrs_df['mutation_detected_gatk_haplotypecaller'] where each row is True if any value from the list unique_mcrs_df['vcrs_header'] is in the set id_set_hap  # keep in mind that my IDs are the mutation headers (ENST...), NOT mcrs headers or mcrs ids
-unique_mcrs_df['mutation_detected_gatk_haplotypecaller'] = unique_mcrs_df['header_list'].apply(
-    lambda header_list: any(header in id_set_hap for header in header_list)
-)
-
-# calculate expression error
-unique_mcrs_df['mutation_expression_prediction_error'] = unique_mcrs_df['DP_gatk_haplotypecaller'] - unique_mcrs_df['number_of_reads_mutant']  # positive means overpredicted, negative means underpredicted
-
-unique_mcrs_df['TP'] = (unique_mcrs_df['included_in_synthetic_reads_mutant'] & unique_mcrs_df['mutation_detected_gatk_haplotypecaller'])
-unique_mcrs_df['FP'] = (~unique_mcrs_df['included_in_synthetic_reads_mutant'] & unique_mcrs_df['mutation_detected_gatk_haplotypecaller'])
-unique_mcrs_df['FN'] = (unique_mcrs_df['included_in_synthetic_reads_mutant'] & ~unique_mcrs_df['mutation_detected_gatk_haplotypecaller'])
-unique_mcrs_df['TN'] = (~unique_mcrs_df['included_in_synthetic_reads_mutant'] & ~unique_mcrs_df['mutation_detected_gatk_haplotypecaller'])
-
-haplotypecaller_stat_path = f"{plot_output_folder}/reference_metrics_haplotypecaller.txt"
-metric_dictionary_reference = calculate_metrics(unique_mcrs_df, header_name = "vcrs_header", check_assertions = False, out = haplotypecaller_stat_path)
-draw_confusion_matrix(metric_dictionary_reference)
-
-true_set = set(unique_mcrs_df.loc[unique_mcrs_df['included_in_synthetic_reads_mutant'], 'vcrs_header'])
-positive_set = set(unique_mcrs_df.loc[unique_mcrs_df['mutation_detected_gatk_haplotypecaller'], 'vcrs_header'])
-create_venn_diagram(true_set, positive_set, TN = metric_dictionary_reference['TN'], out_path = f"{plot_output_folder}/venn_diagram_reference_cosmic_only_haplotypecaller.png")
-
-noncosmic_mutation_id_set = {f'haplotypecaller_fp_{i}' for i in range(1, number_of_mutations_haplotypecaller - number_of_cosmic_mutations_haplotypecaller + 1)}
-
-positive_set_including_noncosmic_mutations = positive_set.union(noncosmic_mutation_id_set)
-false_positive_set = set(unique_mcrs_df.loc[unique_mcrs_df['FP'], 'vcrs_header'])
-false_positive_set_including_noncosmic_mutations = false_positive_set.union(noncosmic_mutation_id_set)
-
-FP_including_noncosmic = len(false_positive_set_including_noncosmic_mutations)
-accuracy, sensitivity, specificity = calculate_sensitivity_specificity(metric_dictionary_reference['TP'], metric_dictionary_reference['TN'], FP_including_noncosmic, metric_dictionary_reference['FN'])
-
-with open(haplotypecaller_stat_path, "a") as file:
-    file.write(f"FP including non-cosmic: {FP_including_noncosmic}\n")
-    file.write(f"accuracy including non-cosmic: {accuracy}\n")
-    file.write(f"specificity including non-cosmic: {specificity}\n")
-
-create_venn_diagram(true_set, positive_set_including_noncosmic_mutations, TN = metric_dictionary_reference['TN'], out_path = f"{plot_output_folder}/venn_diagram_reference_including_noncosmics_haplotypecaller.png")
-
-unique_mcrs_df.rename(columns={'TP': 'TP_gatk_haplotypecaller', 'FP': 'FP_gatk_haplotypecaller', 'TN': 'TN_gatk_haplotypecaller', 'FN': 'FN_gatk_haplotypecaller', 'mutation_expression_prediction_error': 'mutation_expression_prediction_error_gatk_haplotypecaller'}, inplace=True)
-
-unique_mcrs_df_out = unique_mcrs_df_path.replace(".csv", "_with_varscan.csv")
-unique_mcrs_df.to_csv(unique_mcrs_df_out, index=False)
+perform_analysis(vcf_file=vcf_file, unique_mcrs_df_path=unique_mcrs_df_path, cosmic_df=cosmic_df, plot_output_folder=plot_output_folder, package_name="gatk_haplotypecaller")

@@ -235,26 +235,28 @@ if not is_program_installed(seqtk):
 #* Build normal genome reference (for vk clean in vk count) when qc_against_gene_matrix=True
 if qc_against_gene_matrix and (not os.path.exists(reference_genome_index_path) or not os.path.exists(reference_genome_t2g_path)):  # download reference if does not exist
     if not os.path.exists(reference_genome_fasta) or not os.path.exists(reference_genome_gtf):
-        reference_genome_out_dir = os.path.dirname(reference_genome_fasta)
+        reference_genome_out_dir = os.path.dirname(reference_genome_fasta) if os.path.dirname(reference_genome_fasta) else "."
         subprocess.run(["gget", "ref", "-w", "dna,gtf", "-r", "93", "--out_dir", reference_genome_out_dir, "-d", "human_grch37"], check=True)  # using grch37, ensembl 93 to agree with COSMIC
+        subprocess.run(["gunzip", f"{reference_genome_fasta}.gz"], check=True)
+        subprocess.run(["gunzip", f"{reference_genome_gtf}.gz"], check=True)
     reference_genome_f1 = os.path.join(reference_out_dir, "ensembl_grch37_release93", "f1.fasta")
     subprocess.run(["kb", "ref", "-t", str(threads), "-i", reference_genome_index_path, "-g", reference_genome_t2g_path, "-f1", reference_genome_f1, reference_genome_fasta, reference_genome_gtf], check=True)
 
 #* Download/build necessary files for alternative variant calling tools
 if any(tool in tools_that_require_star_alignment for tool in tools_to_benchmark):  # check if any tool in tools_to_benchmark requires STAR alignment
     #* Download reference genome information
-    reference_genome_fasta_url = "https://ftp.ensembl.org/pub/grch37/release-93/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.dna.primary_assembly.fa.gz"
-    reference_genome_gtf_url = "https://ftp.ensembl.org/pub/grch37/release-93/gtf/homo_sapiens/Homo_sapiens.GRCh37.87.gtf.gz"
+    # reference_genome_fasta_url = "https://ftp.ensembl.org/pub/grch37/release-93/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.dna.primary_assembly.fa.gz"
+    # reference_genome_gtf_url = "https://ftp.ensembl.org/pub/grch37/release-93/gtf/homo_sapiens/Homo_sapiens.GRCh37.87.gtf.gz"
     genomes1000_vcf_url = "https://ftp.ensembl.org/pub/grch37/release-93/variation/vcf/homo_sapiens/1000GENOMES-phase_3.vcf.gz"
 
-    if os.path.dirname(reference_genome_fasta):
-        os.makedirs(os.path.dirname(reference_genome_fasta), exist_ok=True)
-    download_reference_genome_fasta_command = ["wget", "-O", f"{reference_genome_fasta}.gz", reference_genome_fasta_url]
+    reference_genome_out_dir = os.path.dirname(reference_genome_fasta) if os.path.dirname(reference_genome_fasta) else "."
+    os.makedirs(reference_genome_out_dir, exist_ok=True)
+    download_reference_genome_fasta_command = ["gget", "ref", "-w", "dna", "-r", "93", "--out_dir", reference_genome_out_dir, "-d", "human_grch37"]
     unzip_reference_genome_fasta_command = ["gunzip", f"{reference_genome_fasta}.gz"]
 
-    if os.path.dirname(reference_genome_gtf):
-        os.makedirs(os.path.dirname(reference_genome_gtf), exist_ok=True)
-    download_reference_genome_gtf_command = ["wget", "-O", f"{reference_genome_gtf}.gz", reference_genome_gtf_url]
+    reference_genome_out_dir = os.path.dirname(reference_genome_gtf) if os.path.dirname(reference_genome_gtf) else "."
+    os.makedirs(reference_genome_gtf, exist_ok=True)
+    download_reference_genome_gtf_command = ["gget", "ref", "-w", "gtf", "-r", "93", "--out_dir", reference_genome_gtf, "-d", "human_grch37"]
     unzip_reference_genome_gtf_command = ["gunzip", f"{reference_genome_gtf}.gz"]
 
     if os.path.dirname(genomes1000_vcf):
@@ -450,7 +452,7 @@ for number_of_reads in number_of_reads_list:
         #* Variant calling: GATK HaplotypeCaller
         logger.info(f"GATK HaplotypeCaller, {number_of_reads} reads")
         output_file = os.path.join(output_dir, f"gatk_haplotypecaller_threads_{threads}_reads_{number_of_reads}_time_and_memory.txt")
-        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --threads {threads} --read_length {read_length} --STAR {STAR} --java {java} --picard_jar {picard_jar} --gatk {gatk} --tmp {tmp_dir} --aligned_and_unmapped_bam {aligned_and_unmapped_bam} --skip_accuracy_analysis"
+        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --threads {threads} --read_length {read_length} --STAR {STAR} --java {java} --picard_jar {picard_jar} --gatk {gatk} --out {tmp_dir} --aligned_and_unmapped_bam {aligned_and_unmapped_bam} --skip_accuracy_analysis"
         if dry_run:
             print(f"python3 {gatk_haplotypecaller_script_path} {argparse_flags}")
         else:
@@ -460,7 +462,7 @@ for number_of_reads in number_of_reads_list:
         #* Variant calling: GATK Mutect2
         logger.info(f"GATK Mutect2, {number_of_reads} reads")
         output_file = os.path.join(output_dir, f"gatk_mutect2_threads_{threads}_reads_{number_of_reads}_time_and_memory.txt")
-        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --threads {threads} --read_length {read_length} --STAR {STAR} --java {java} --picard_jar {picard_jar} --gatk {gatk} --tmp {tmp_dir} --aligned_and_unmapped_bam {aligned_and_unmapped_bam} --skip_accuracy_analysis"
+        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --threads {threads} --read_length {read_length} --STAR {STAR} --java {java} --picard_jar {picard_jar} --gatk {gatk} --out {tmp_dir} --aligned_and_unmapped_bam {aligned_and_unmapped_bam} --skip_accuracy_analysis"
         if dry_run:
             print(f"python3 {gatk_mutect2_script_path} {argparse_flags}")
         else:
@@ -470,7 +472,7 @@ for number_of_reads in number_of_reads_list:
         #* Variant calling: Strelka2
         logger.info(f"Strelka2, {number_of_reads} reads")
         output_file = os.path.join(output_dir, f"strelka2_threads_{threads}_reads_{number_of_reads}_time_and_memory.txt")
-        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --threads {threads} --read_length {read_length} --STRELKA_INSTALL_PATH {STRELKA_INSTALL_PATH} --tmp {tmp_dir} --aligned_and_unmapped_bam {aligned_and_unmapped_bam} --skip_accuracy_analysis"
+        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --threads {threads} --read_length {read_length} --STRELKA_INSTALL_PATH {STRELKA_INSTALL_PATH} --out {tmp_dir} --aligned_and_unmapped_bam {aligned_and_unmapped_bam} --skip_accuracy_analysis"
         if dry_run:
             print(f"python3 {strelka_script_path} {argparse_flags}")
         else:
@@ -480,7 +482,7 @@ for number_of_reads in number_of_reads_list:
         #* Variant calling: VarScan
         logger.info(f"VarScan, {number_of_reads} reads")
         output_file = os.path.join(output_dir, f"varscan_threads_{threads}_reads_{number_of_reads}_time_and_memory.txt")
-        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --threads {threads} --read_length {read_length} --VARSCAN_INSTALL_PATH {VARSCAN_INSTALL_PATH} --tmp {tmp_dir} --aligned_and_unmapped_bam {aligned_and_unmapped_bam} --skip_accuracy_analysis"
+        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --threads {threads} --read_length {read_length} --VARSCAN_INSTALL_PATH {VARSCAN_INSTALL_PATH} --out {tmp_dir} --aligned_and_unmapped_bam {aligned_and_unmapped_bam} --skip_accuracy_analysis"
         if dry_run:
             print(f"python3 {varscan_script_path} {argparse_flags}")
         else:
@@ -490,7 +492,7 @@ for number_of_reads in number_of_reads_list:
         #* Variant calling: Deepvariant
         logger.info(f"Deepvariant, {number_of_reads} reads")
         output_file = os.path.join(output_dir, f"deepvariant_threads_{threads}_reads_{number_of_reads}_time_and_memory.txt")
-        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --threads {threads} --read_length {read_length} --tmp {tmp_dir} --aligned_and_unmapped_bam {aligned_and_unmapped_bam} --skip_accuracy_analysis"
+        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --threads {threads} --read_length {read_length} --out {tmp_dir} --aligned_and_unmapped_bam {aligned_and_unmapped_bam} --skip_accuracy_analysis"
         if dry_run:
             print(f"python3 {deepvariant_script_path} {argparse_flags}")
         else:
