@@ -35,7 +35,7 @@ all_supported_tools_to_benchmark = {"varseek", "gatk_haplotypecaller", "gatk_mut
 tools_that_require_star_alignment = {"gatk_haplotypecaller", "gatk_mutect2", "strelka2", "varscan", "deepvariant"}
 
 ### ARGUMENTS ###
-number_of_reads_list = [1, 4, 16, 64, 256, 1024]  # number of reads, in millions
+number_of_reads_list = [0.001, 0.002]  # [1, 4, 16, 64, 256, 1024]  # number of reads, in millions
 tools_to_benchmark = ["varseek", "gatk_haplotypecaller", "gatk_mutect2", "strelka2", "varscan", "deepvariant"]
 dry_run = False  # only applies to the variant calling steps, not to the preparation (ie STAR, data downloads, etc)
 
@@ -368,6 +368,7 @@ if "varscan" in tools_to_benchmark and not os.path.exists(VARSCAN_INSTALL_PATH):
     raise ValueError("VarScan is required to run VarScan. Please install VarScan and ensure that it is in your PATH.")
     # subprocess.run(["wget", "-O", VARSCAN_INSTALL_PATH, "https://sourceforge.net/projects/varscan/files/VarScan.v2.3.9.jar/download"], check=True)
 
+output_file = os.path.join(output_dir, "time_and_memory_benchmarking_report.txt")
 
 #* Run variant calling tools
 for number_of_reads in number_of_reads_list:
@@ -407,24 +408,24 @@ for number_of_reads in number_of_reads_list:
     #* Variant calling: varseek
     if "varseek" in tools_to_benchmark:
         logger.info(f"varseek, {number_of_reads} reads")
-        output_file = os.path.join(output_dir, f"vk_count_threads_{threads}_reads_{number_of_reads}_time_and_memory.txt")
+        script_title = f"varseek {number_of_reads} reads {threads} threads"
         vk_count_out_tmp = os.path.join(tmp_dir, f"vk_count_threads_{number_of_reads}_reads_out")
         argparse_flags = f"--index {vk_ref_index_path} --t2g {vk_ref_t2g_path} --technology bulk --threads {threads} -k {k} --out {vk_count_out_tmp} --kb_count_reference_genome_out_dir {kb_count_reference_genome_out_dir} --disable-clean --disable_summarize {fastq_output_path}"
         if dry_run:
             print(f"python3 {vk_count_script_path} {argparse_flags}")
         else:
-            _ = report_time_and_memory_of_script(vk_count_script_path, output_file = output_file, argparse_flags = argparse_flags)
+            _ = report_time_and_memory_of_script(vk_count_script_path, output_file = output_file, argparse_flags = argparse_flags, script_title = script_title)
 
     #* Variant calling: varseek with smaller k
     if "varseek" in tools_to_benchmark and os.path.isfile(vk_ref_small_k_index_path) and os.path.isfile(vk_ref_small_k_t2g_path):
         logger.info(f"varseek k={k_small}, {number_of_reads} reads")
-        output_file = os.path.join(output_dir, f"vk_count_k{k_small}_threads_{threads}_reads_{number_of_reads}_time_and_memory.txt")
+        script_title = f"varseek_k={k_small} {number_of_reads} reads {threads} threads"
         vk_count_out_tmp = os.path.join(tmp_dir, f"vk_count_k{k_small}_reads_{number_of_reads}_out")
         argparse_flags = f"--index {vk_ref_small_k_index_path} --t2g {vk_ref_small_k_t2g_path} --technology bulk --threads {threads} -k {k_small} --out {vk_count_out_tmp} -k {k_small} --kb_count_reference_genome_out_dir {kb_count_reference_genome_out_dir} --disable-clean --disable_summarize {fastq_output_path}"
         if dry_run:
             print(f"python3 {vk_count_script_path} {argparse_flags}")
         else:
-            _ = report_time_and_memory_of_script(vk_count_script_path, output_file = output_file, argparse_flags = argparse_flags)
+            _ = report_time_and_memory_of_script(vk_count_script_path, output_file = output_file, argparse_flags = argparse_flags, script_title = script_title)
 
     if any(tool in tools_that_require_star_alignment for tool in tools_to_benchmark):
         #* STAR alignment
@@ -462,57 +463,57 @@ for number_of_reads in number_of_reads_list:
     if "gatk_haplotypecaller" in tools_to_benchmark:
         #* Variant calling: GATK HaplotypeCaller
         logger.info(f"GATK HaplotypeCaller, {number_of_reads} reads")
-        output_file = os.path.join(output_dir, f"gatk_haplotypecaller_threads_{threads}_reads_{number_of_reads}_time_and_memory.txt")
+        script_title = f"gatk_haplotypecaller {number_of_reads} reads {threads} threads"
         gatk_parent_haplotypecaller = os.path.join(tmp_dir, f"gatk_haplotypecaller_{number_of_reads}_reads")
         argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --genomes1000_vcf {genomes1000_vcf} --star_genome_dir {star_genome_dir} --aligned_and_unmapped_bam {aligned_and_unmapped_bam} --out {gatk_parent_haplotypecaller} --threads {threads} --read_length {read_length} --STAR {STAR} --java {java} --picard_jar {picard_jar} --gatk {gatk} --skip_accuracy_analysis"
         if dry_run:
             print(f"python3 {gatk_haplotypecaller_script_path} {argparse_flags}")
         else:
-            _ = report_time_and_memory_of_script(gatk_haplotypecaller_script_path, output_file = output_file, argparse_flags = argparse_flags)
+            _ = report_time_and_memory_of_script(gatk_haplotypecaller_script_path, output_file = output_file, argparse_flags = argparse_flags, script_title = script_title)
 
     if "gatk_mutect2" in tools_to_benchmark:
         #* Variant calling: GATK Mutect2
         logger.info(f"GATK Mutect2, {number_of_reads} reads")
-        output_file = os.path.join(output_dir, f"gatk_mutect2_threads_{threads}_reads_{number_of_reads}_time_and_memory.txt")
+        script_title = f"gatk_mutect2 {number_of_reads} reads {threads} threads"
         gatk_parent_mutect2 = os.path.join(tmp_dir, f"gatk_mutect2_{number_of_reads}_reads")
         argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --genomes1000_vcf {genomes1000_vcf} --star_genome_dir {star_genome_dir} --aligned_and_unmapped_bam {aligned_and_unmapped_bam} --out {gatk_parent_mutect2} --threads {threads} --read_length {read_length} --STAR {STAR} --java {java} --picard_jar {picard_jar} --gatk {gatk} --skip_accuracy_analysis"
         if dry_run:
             print(f"python3 {gatk_mutect2_script_path} {argparse_flags}")
         else:
-            _ = report_time_and_memory_of_script(gatk_mutect2_script_path, output_file = output_file, argparse_flags = argparse_flags)
+            _ = report_time_and_memory_of_script(gatk_mutect2_script_path, output_file = output_file, argparse_flags = argparse_flags, script_title = script_title)
 
     if "strelka2" in tools_to_benchmark:
         #* Variant calling: Strelka2
         logger.info(f"Strelka2, {number_of_reads} reads")
-        output_file = os.path.join(output_dir, f"strelka2_threads_{threads}_reads_{number_of_reads}_time_and_memory.txt")
+        script_title = f"strelka2 {number_of_reads} reads {threads} threads"
         strelka2_output_dir = os.path.join(tmp_dir, f"strelka2_simulated_data_dir_{number_of_reads}_reads")
         argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --aligned_and_unmapped_bam {aligned_and_unmapped_bam} --out {strelka2_output_dir} --threads {threads} --read_length {read_length} --STRELKA_INSTALL_PATH {STRELKA_INSTALL_PATH} --python2_env {python2_env} --skip_accuracy_analysis"
         if dry_run:
             print(f"python3 {strelka_script_path} {argparse_flags}")
         else:
-            _ = report_time_and_memory_of_script(strelka_script_path, output_file = output_file, argparse_flags = argparse_flags)
+            _ = report_time_and_memory_of_script(strelka_script_path, output_file = output_file, argparse_flags = argparse_flags, script_title = script_title)
 
     if "varscan" in tools_to_benchmark:
         #* Variant calling: VarScan
         logger.info(f"VarScan, {number_of_reads} reads")
-        output_file = os.path.join(output_dir, f"varscan_threads_{threads}_reads_{number_of_reads}_time_and_memory.txt")
+        script_title = f"varscan {number_of_reads} reads {threads} threads"
         varscan_output_dir = os.path.join(tmp_dir, f"varscan_simulated_data_dir_{number_of_reads}_reads")
         argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --aligned_and_unmapped_bam {aligned_and_unmapped_bam} --out {varscan_output_dir} -threads {threads} --read_length {read_length} --VARSCAN_INSTALL_PATH {VARSCAN_INSTALL_PATH} --skip_accuracy_analysis"
         if dry_run:
             print(f"python3 {varscan_script_path} {argparse_flags}")
         else:
-            _ = report_time_and_memory_of_script(varscan_script_path, output_file = output_file, argparse_flags = argparse_flags)
+            _ = report_time_and_memory_of_script(varscan_script_path, output_file = output_file, argparse_flags = argparse_flags, script_title = script_title)
 
     if "deepvariant" in tools_to_benchmark:
         #* Variant calling: Deepvariant
         logger.info(f"Deepvariant, {number_of_reads} reads")
-        output_file = os.path.join(output_dir, f"deepvariant_threads_{threads}_reads_{number_of_reads}_time_and_memory.txt")
+        script_title = f"deepvariant {number_of_reads} reads {threads} threads"
         deepvariant_output_dir = os.path.join(tmp_dir, f"deepvariant_simulated_data_dir_{number_of_reads}_reads")
         argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --threads {threads} --read_length {read_length} --out {deepvariant_output_dir} --aligned_and_unmapped_bam {aligned_and_unmapped_bam} --model_dir {deepvariant_model} --threads {threads} --read_length {read_length} --skip_accuracy_analysis"
         if dry_run:
             print(f"python3 {deepvariant_script_path} {argparse_flags}")
         else:
-            _ = report_time_and_memory_of_script(deepvariant_script_path, output_file = output_file, argparse_flags = argparse_flags)
+            _ = report_time_and_memory_of_script(deepvariant_script_path, output_file = output_file, argparse_flags = argparse_flags, script_title = script_title)
 
 # delete tmp directory
 # os.system(f"rm -rf {tmp_dir}")  #!!! uncomment later to delete tmp directory

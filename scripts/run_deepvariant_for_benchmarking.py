@@ -10,6 +10,8 @@ RLSRWP_2025_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  #
 sys.path.append(RLSRWP_2025_dir)  #!!! erase
 from RLSRWP_2025.seq_utils import perform_analysis
 
+scripts_dir = os.path.dirname(os.path.abspath(__file__))
+
 from varseek.utils import (
     run_command_with_error_logging,
     add_vcf_info_to_cosmic_tsv,
@@ -29,6 +31,7 @@ parser.add_argument("--out", default="out", help="Path to out folder")
 # Parameters
 parser.add_argument("--threads", default=2, help="Number of threads")
 parser.add_argument("--read_length", default=150, help="Read length")
+parser.add_argument("--min_coverage", default=3, help="Min coverage. Set to 1 to forgo this filtering")
 parser.add_argument("--skip_accuracy_analysis", action="store_true", help="Skip accuracy analysis (beyond simple time and memory benchmarking)")
 
 # Executables
@@ -47,6 +50,7 @@ reference_genome_fasta = args.reference_genome_fasta
 reference_genome_gtf = args.reference_genome_gtf
 threads = args.threads
 read_length_minus_one = int(args.read_length) - 1
+min_coverage = args.min_coverage
 skip_accuracy_analysis = args.skip_accuracy_analysis
 synthetic_read_fastq = args.synthetic_read_fastq
 aligned_and_unmapped_bam = args.aligned_and_unmapped_bam
@@ -65,17 +69,19 @@ BIN_VERSION="1.4.0"
 alignment_folder = f"{deepvariant_output_dir}/alignment"
 out_file_name_prefix = f"{alignment_folder}/sample_"
 
-output_dir = os.path.join(deepvariant_output_dir, "output")
+output_dir = os.path.join(deepvariant_output_dir, "vcf_output")
 os.makedirs(output_dir, exist_ok=True)
 
 deepvariant_vcf = os.path.join(output_dir, "out.vcf.gz")
 
 intermediate_results = os.path.join(deepvariant_output_dir, "intermediate_results_dir")
 os.makedirs(intermediate_results, exist_ok=True)
-x3_coverage_bed_file = os.path.join(intermediate_results, "x3_coverage.bed")  # used in run_bedtools.sh
+above_min_coverage_bed_file = os.path.join(intermediate_results, "above_min_coverage.bed")  # used in run_bedtools.sh
 
 if reference_genome_fasta[0] == "/":
     reference_genome_fasta_directory = os.path.dirname(reference_genome_fasta)
+if deepvariant_model[0] == "/":
+    deepvariant_model_directory = os.path.dirname(deepvariant_model)
 
 for name, path in {"STAR": STAR}.items():
     if not os.path.exists(path) and not shutil.which(path):
@@ -138,9 +144,8 @@ if not os.path.exists(bam_index_file):
     _ = pysam.index(aligned_and_unmapped_bam)
 
 #* Filtering by 3x coverage regions of BAM file
-#!!! these both use sudo too (here and in the run_bedtools.sh file)
 generate_3x_coverage_files = [
-    "docker", "run",
+    "docker", "run", "--rm",
     "-v", f"{os.getcwd()}:{os.getcwd()}",
     "-w", os.getcwd(),
     "-it", "quay.io/biocontainers/mosdepth:0.3.1--h4dc83fb_1",
@@ -149,12 +154,13 @@ generate_3x_coverage_files = [
     f"{intermediate_results}/data_coverage",
     aligned_and_unmapped_bam
 ]
-# run_command_with_error_logging(generate_3x_coverage_files)   #!!! uncomment and debug
-# run_command_with_error_logging(["bash", "run_bedtools.sh", intermediate_results])
+if min_coverage > 1:
+    run_command_with_error_logging(generate_3x_coverage_files)
+    run_command_with_error_logging(["bash", f"{scripts_dir}/run_bedtools.sh", intermediate_results, min_coverage])
 
 #* DeepVariant variant calling
 deepvariant_command = [
-    "docker", "run",
+    "docker", "run", "--rm",
     "-v", f"{os.getcwd()}:{os.getcwd()}",
     "-w", os.getcwd(),
     f"google/deepvariant:{BIN_VERSION}",
@@ -165,12 +171,15 @@ deepvariant_command = [
     f"--reads={aligned_and_unmapped_bam}",
     f"--output_vcf={deepvariant_vcf}",
     f"--num_shards={os.cpu_count()}",
-    # f"--regions={x3_coverage_bed_file}",   #!!! uncomment when getting the portion above working
     "--make_examples_extra_args=split_skip_reads=true,channels=''",
     "--intermediate_results_dir", intermediate_results
 ]
 if reference_genome_fasta[0] == "/":
-    deepvariant_command[4:4] = ["-v", f"{reference_genome_fasta_directory}:{reference_genome_fasta_directory}"]
+    deepvariant_command[5:5] = ["-v", f"{reference_genome_fasta_directory}:{reference_genome_fasta_directory}"]
+if deepvariant_model[0] == "/":
+    deepvariant_command[5:5] = ["-v", f"{deepvariant_model_directory}:{deepvariant_model_directory}"]
+if min_coverage > 1 and os.path.isfile(above_min_coverage_bed_file):
+    deepvariant_command.insert(-4, f"--regions={above_min_coverage_bed_file}")
 run_command_with_error_logging(deepvariant_command)
 
 if skip_accuracy_analysis:
