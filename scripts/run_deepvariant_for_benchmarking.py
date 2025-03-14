@@ -65,10 +65,6 @@ BIN_VERSION="1.4.0"
 alignment_folder = f"{deepvariant_output_dir}/alignment"
 out_file_name_prefix = f"{alignment_folder}/sample_"
 
-intermediate_data_dir = os.path.join(deepvariant_output_dir, "data_intermediate")
-os.makedirs(intermediate_data_dir, exist_ok=True)
-x3_coverage_bed_file = os.path.join(intermediate_data_dir, "x3_coverage.bed")  # used in run_bedtools.sh
-
 output_dir = os.path.join(deepvariant_output_dir, "output")
 os.makedirs(output_dir, exist_ok=True)
 
@@ -76,13 +72,10 @@ deepvariant_vcf = os.path.join(output_dir, "out.vcf.gz")
 
 intermediate_results = os.path.join(deepvariant_output_dir, "intermediate_results_dir")
 os.makedirs(intermediate_results, exist_ok=True)
+x3_coverage_bed_file = os.path.join(intermediate_results, "x3_coverage.bed")  # used in run_bedtools.sh
 
 if reference_genome_fasta[0] == "/":
     reference_genome_fasta_directory = os.path.dirname(reference_genome_fasta)
-    reference_genome_fasta_directory_for_docker = "/reference_dir"
-    reference_genome_fasta_for_docker = f"{reference_genome_fasta_directory_for_docker}/{reference_genome_fasta}"
-else:
-    reference_genome_fasta_for_docker = reference_genome_fasta
 
 for name, path in {"STAR": STAR}.items():
     if not os.path.exists(path) and not shutil.which(path):
@@ -153,11 +146,11 @@ generate_3x_coverage_files = [
     "-it", "quay.io/biocontainers/mosdepth:0.3.1--h4dc83fb_1",
     "mosdepth",
     "--threads", threads,
-    f"{intermediate_data_dir}/data_coverage",
+    f"{intermediate_results}/data_coverage",
     aligned_and_unmapped_bam
 ]
 # run_command_with_error_logging(generate_3x_coverage_files)   #!!! uncomment and debug
-# run_command_with_error_logging(["bash", "run_bedtools.sh", intermediate_data_dir])
+# run_command_with_error_logging(["bash", "run_bedtools.sh", intermediate_results])
 
 #* DeepVariant variant calling
 deepvariant_command = [
@@ -168,7 +161,7 @@ deepvariant_command = [
     "run_deepvariant",
     "--model_type=WES",
     f"--customized_model={deepvariant_model}/model.ckpt",
-    f"--ref={reference_genome_fasta_for_docker}",
+    f"--ref={reference_genome_fasta}",
     f"--reads={aligned_and_unmapped_bam}",
     f"--output_vcf={deepvariant_vcf}",
     f"--num_shards={os.cpu_count()}",
@@ -176,8 +169,8 @@ deepvariant_command = [
     "--make_examples_extra_args=split_skip_reads=true,channels=''",
     "--intermediate_results_dir", intermediate_results
 ]
-if reference_genome_fasta_for_docker != reference_genome_fasta:
-    deepvariant_command[4:4] = ["-v", f"{reference_genome_fasta_directory}:{reference_genome_fasta_directory_for_docker}"]
+if reference_genome_fasta[0] == "/":
+    deepvariant_command[4:4] = ["-v", f"{reference_genome_fasta_directory}:{reference_genome_fasta_directory}"]
 run_command_with_error_logging(deepvariant_command)
 
 if skip_accuracy_analysis:
