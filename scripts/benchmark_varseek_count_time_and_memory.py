@@ -88,8 +88,8 @@ STRELKA_INSTALL_PATH = "/home/jmrich/opt/strelka-2.9.10.centos6_x86_64"
 python2_env = "python2_env"
 VARSCAN_INSTALL_PATH = "/home/jmrich/opt/VarScan.v2.3.9.jar"
 
-output_dir = os.path.join(data_dir, "benchmarking_out_dir_full")  #* change for each run
-tmp_dir = "tmp_full"
+output_dir = os.path.join(data_dir, "benchmarking_out_dir")  #* change for each run
+tmp_dir = "tmp"
 overwrite = True
 
 deepvariant_model = os.path.join(tmp_dir, "deepvariant_model")
@@ -108,8 +108,8 @@ if overwrite:
         if os.path.exists(out_directory):
             shutil.rmtree(out_directory)
 
-os.makedirs(output_dir)  # purposely not using exist_ok=True to ensure that the directory is non-existent  #* comment out for debugging to keep output_dir between runs
-os.makedirs(tmp_dir)  # purposely not using exist_ok=True to ensure that the directory is non-existent  #* comment out for debugging to keep tmp_dir between runs
+# os.makedirs(output_dir)  # purposely not using exist_ok=True to ensure that the directory is non-existent  #* comment out for debugging to keep output_dir between runs
+# os.makedirs(tmp_dir)  # purposely not using exist_ok=True to ensure that the directory is non-existent  #* comment out for debugging to keep tmp_dir between runs
 os.makedirs(deepvariant_model, exist_ok=True)
 
 if not star_genome_dir:
@@ -221,7 +221,8 @@ if not os.path.isfile(fastq_output_path_max_reads):
         reference_out_dir=reference_out_dir,
         out=vk_sim_out_dir,
         k=k,
-        w=w
+        w=w,
+        make_dataframes=False
     )
 
 #* Download varseek index
