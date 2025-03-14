@@ -156,7 +156,7 @@ generate_3x_coverage_files = [
 ]
 if min_coverage > 1:
     run_command_with_error_logging(generate_3x_coverage_files)
-    run_command_with_error_logging(["bash", f"{scripts_dir}/run_bedtools.sh", intermediate_results, min_coverage])
+    run_command_with_error_logging(["bash", f"{scripts_dir}/run_bedtools.sh", intermediate_results, str(min_coverage)])
 
 #* DeepVariant variant calling
 deepvariant_command = [

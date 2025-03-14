@@ -410,7 +410,7 @@ for number_of_reads in number_of_reads_list:
         logger.info(f"varseek, {number_of_reads} reads")
         script_title = f"varseek {number_of_reads} reads {threads} threads"
         vk_count_out_tmp = os.path.join(tmp_dir, f"vk_count_threads_{number_of_reads}_reads_out")
-        argparse_flags = f"--index {vk_ref_index_path} --t2g {vk_ref_t2g_path} --technology bulk --threads {threads} -k {k} --out {vk_count_out_tmp} --kb_count_reference_genome_out_dir {kb_count_reference_genome_out_dir} --disable-clean --disable_summarize {fastq_output_path}"
+        argparse_flags = f"--index {vk_ref_index_path} --t2g {vk_ref_t2g_path} --technology bulk --threads {threads} -k {k} --out {vk_count_out_tmp} --kb_count_reference_genome_out_dir {kb_count_reference_genome_out_dir} --disable_clean --disable_summarize --fastqs {fastq_output_path}"
         if dry_run:
             print(f"python3 {vk_count_script_path} {argparse_flags}")
         else:
@@ -421,7 +421,7 @@ for number_of_reads in number_of_reads_list:
         logger.info(f"varseek k={k_small}, {number_of_reads} reads")
         script_title = f"varseek_k={k_small} {number_of_reads} reads {threads} threads"
         vk_count_out_tmp = os.path.join(tmp_dir, f"vk_count_k{k_small}_reads_{number_of_reads}_out")
-        argparse_flags = f"--index {vk_ref_small_k_index_path} --t2g {vk_ref_small_k_t2g_path} --technology bulk --threads {threads} -k {k_small} --out {vk_count_out_tmp} -k {k_small} --kb_count_reference_genome_out_dir {kb_count_reference_genome_out_dir} --disable-clean --disable_summarize {fastq_output_path}"
+        argparse_flags = f"--index {vk_ref_small_k_index_path} --t2g {vk_ref_small_k_t2g_path} --technology bulk --threads {threads} -k {k_small} --out {vk_count_out_tmp} -k {k_small} --kb_count_reference_genome_out_dir {kb_count_reference_genome_out_dir} --disable_clean --disable_summarize --fastqs {fastq_output_path}"
         if dry_run:
             print(f"python3 {vk_count_script_path} {argparse_flags}")
         else:
@@ -498,7 +498,7 @@ for number_of_reads in number_of_reads_list:
         logger.info(f"VarScan, {number_of_reads} reads")
         script_title = f"varscan {number_of_reads} reads {threads} threads"
         varscan_output_dir = os.path.join(tmp_dir, f"varscan_simulated_data_dir_{number_of_reads}_reads")
-        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --aligned_and_unmapped_bam {aligned_and_unmapped_bam} --out {varscan_output_dir} -threads {threads} --read_length {read_length} --VARSCAN_INSTALL_PATH {VARSCAN_INSTALL_PATH} --skip_accuracy_analysis"
+        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --aligned_and_unmapped_bam {aligned_and_unmapped_bam} --out {varscan_output_dir} --threads {threads} --read_length {read_length} --VARSCAN_INSTALL_PATH {VARSCAN_INSTALL_PATH} --skip_accuracy_analysis"
         if dry_run:
             print(f"python3 {varscan_script_path} {argparse_flags}")
         else:
