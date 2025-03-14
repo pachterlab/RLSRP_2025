@@ -43,7 +43,7 @@ parser.add_argument("--unique_mcrs_df_path", help="Path to unique_mcrs_df_path f
 args = parser.parse_args()
 
 star_genome_dir = args.star_genome_dir if args.star_genome_dir else os.path.join(args.out, "star_genome")
-strelka2_output_dir = os.path.join(args.out, "strelka2_simulated_data_dir")
+strelka2_output_dir = args.out
 reference_genome_fasta = args.reference_genome_fasta
 reference_genome_gtf = args.reference_genome_gtf
 threads = args.threads
@@ -64,9 +64,13 @@ for name, path in {"STAR": STAR, "STRELKA_INSTALL_PATH": STRELKA_INSTALL_PATH}.i
     if not os.path.exists(path) and not shutil.which(path):
         raise FileNotFoundError(f"{name} not found or installed properly.")
 
-check_conda_environments_result = subprocess.run(["conda", "env", "list"], capture_output=True, text=True)
-if python2_env not in check_conda_environments_result.stdout:
-    raise FileNotFoundError(f"Conda environment {python2_env} not found. Please create with `conda create -n {python2_env} python=2.7`.") 
+if not shutil.which("python2"):
+    check_conda_environments_result = subprocess.run(["conda", "env", "list"], capture_output=True, text=True)
+    if python2_env not in check_conda_environments_result.stdout:
+        raise FileNotFoundError(f"System python2 and conda environment {python2_env} not found. Please install system python2 or create a conda environment with python2 with `conda create -n {python2_env} python=2.7`, and supply it as an argument --python2_env {python2_env}.") 
+    system_python2_installed = False
+else:
+    system_python2_installed = True
 
 os.makedirs(strelka2_output_dir, exist_ok=True)
 os.makedirs(star_genome_dir, exist_ok=True)
@@ -122,23 +126,25 @@ if not os.path.exists(bam_index_file):
 
 #* Strelka2 variant calling configuration
 strelka2_configure_command = [
-    "conda", "run", "-n", python2_env,
     f"{STRELKA_INSTALL_PATH}/bin/configureStrelkaGermlineWorkflow.py",
     "--bam", aligned_and_unmapped_bam,
     "--referenceFasta", reference_genome_fasta,
     "--rna",
     "--runDir", strelka2_output_dir
 ]
+if not system_python2_installed:
+    strelka2_configure_command = ["conda", "run", "-n", python2_env] + strelka2_configure_command
 if not os.path.exists(os.path.join(strelka2_output_dir, "runWorkflow.py")):
     run_command_with_error_logging(strelka2_configure_command)
 
 #* Strelka2 variant calling configuration
 strelka2_run_command = [
-    "conda", "run", "-n", python2_env,
     f"{strelka2_output_dir}/runWorkflow.py",
     "-m", "local",
     "-j", str(threads)
 ]
+if not system_python2_installed:
+    strelka2_run_command = ["conda", "run", "-n", python2_env] + strelka2_run_command
 run_command_with_error_logging(strelka2_run_command)
 
 if skip_accuracy_analysis:

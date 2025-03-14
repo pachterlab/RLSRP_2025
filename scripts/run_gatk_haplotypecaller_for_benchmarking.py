@@ -47,7 +47,7 @@ parser.add_argument("--unique_mcrs_df_path", help="Path to unique_mcrs_df_path f
 args = parser.parse_args()
 
 star_genome_dir = args.star_genome_dir if args.star_genome_dir else os.path.join(args.out, "star_genome")
-gatk_parent = os.path.join(args.out, "gatk_haplotypecaller")
+gatk_parent = args.out
 reference_genome_fasta = args.reference_genome_fasta
 reference_genome_gtf = args.reference_genome_gtf
 genomes1000_vcf = args.genomes1000_vcf
