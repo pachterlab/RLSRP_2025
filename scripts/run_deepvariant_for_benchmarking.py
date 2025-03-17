@@ -3,6 +3,7 @@ import os
 import sys
 import subprocess
 import shutil
+from pathlib import Path
 
 import pysam
 
@@ -78,10 +79,8 @@ intermediate_results = os.path.join(deepvariant_output_dir, "intermediate_result
 os.makedirs(intermediate_results, exist_ok=True)
 above_min_coverage_bed_file = os.path.join(intermediate_results, "above_min_coverage.bed")  # used in run_bedtools.sh
 
-if reference_genome_fasta[0] == "/":
-    reference_genome_fasta_directory = os.path.dirname(reference_genome_fasta)
-if deepvariant_model[0] == "/":
-    deepvariant_model_directory = os.path.dirname(deepvariant_model)
+reference_genome_fasta_directory = os.path.dirname(reference_genome_fasta) if reference_genome_fasta[0] == "/" else os.getcwd()
+deepvariant_model_directory = os.path.dirname(deepvariant_model) if deepvariant_model[0] == "/" else os.getcwd()
 
 for name, path in {"STAR": STAR}.items():
     if not os.path.exists(path) and not shutil.which(path):
@@ -158,10 +157,30 @@ if min_coverage > 1:
     run_command_with_error_logging(generate_3x_coverage_files)
     run_command_with_error_logging(["bash", f"{scripts_dir}/run_bedtools.sh", intermediate_results, str(min_coverage)])
 
+
+def find_independent_parents(paths):
+    """
+    Given a list of directory paths, returns only the top-level (parent) directories,
+    removing any directories that are inside another.
+    """
+    cwd = os.getcwd()
+    if cwd not in paths:
+        paths.append(cwd)
+    resolved_paths = {Path(p).resolve() for p in paths}  # Convert to absolute paths
+
+    # Filter out child directories
+    independent_parents = set()
+    for path in resolved_paths:
+        if not any(path.is_relative_to(other) for other in resolved_paths if path != other):
+            independent_parents.add(str(path))
+
+    return sorted(independent_parents)  # Sorted for consistency
+
+
 #* DeepVariant variant calling
 deepvariant_command = [
     "docker", "run", "--rm",
-    "-v", f"{os.getcwd()}:{os.getcwd()}",
+    # "-v", f"{os.getcwd()}:{os.getcwd()}",  # Added later
     "-w", os.getcwd(),
     f"google/deepvariant:{BIN_VERSION}",
     "run_deepvariant",
@@ -174,10 +193,11 @@ deepvariant_command = [
     "--make_examples_extra_args=split_skip_reads=true,channels=''",
     "--intermediate_results_dir", intermediate_results
 ]
-if reference_genome_fasta[0] == "/":
-    deepvariant_command[5:5] = ["-v", f"{reference_genome_fasta_directory}:{reference_genome_fasta_directory}"]
-if deepvariant_model[0] == "/":
-    deepvariant_command[5:5] = ["-v", f"{deepvariant_model_directory}:{deepvariant_model_directory}"]
+
+directories_to_mount = find_independent_parents([reference_genome_fasta_directory, deepvariant_model_directory])
+for directory in directories_to_mount:
+    deepvariant_command[3:3] = ["-v", f"{directory}:{directory}"]
+
 if min_coverage > 1 and os.path.isfile(above_min_coverage_bed_file):
     deepvariant_command.insert(-4, f"--regions={above_min_coverage_bed_file}")
 run_command_with_error_logging(deepvariant_command)

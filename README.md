@@ -29,7 +29,7 @@ Otherwise, install these packages manually as-needed (see environment.yml for th
 Once the environment is set up, install the repository as a package.
 
 ```sh
-pip install -e .
+pip install .
 ```
 
 ---
@@ -37,7 +37,7 @@ pip install -e .
 ## Repository Contents
 
 ### 📓 Notebooks  
-Jupyter notebooks to reproduce each main and supplemental figure, named according to the figure number:
+Jupyter notebooks to reproduce each main and supplemental figure, named according to the figure number. Each notebook can also be run independently in a Google Colab environment.
 - `notebooks/`
   - `1.ipynb`
   - `2.ipynb`
