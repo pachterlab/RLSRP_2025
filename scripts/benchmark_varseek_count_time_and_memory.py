@@ -216,7 +216,7 @@ if not os.path.isfile(fastq_output_path_max_reads):
         sequences=reference_cdna_path,
         seq_id_column=seq_id_column,
         var_column=var_column,
-        header_column="header",
+        var_id_column="header",
         variant_type_column=None,
         reference_out_dir=reference_out_dir,
         out=vk_sim_out_dir,
