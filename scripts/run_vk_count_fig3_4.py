@@ -154,20 +154,27 @@ def download_sequencing_total(
     all_files_downloaded = True
     for link in fastq_links:
         rnaseq_fastq_file = os.path.join(sample_out_folder, os.path.basename(link))
+        tmp_fastq_file = os.path.join(sample_out_folder, "tmp_" + os.path.basename(link))  # Temporary file, just so I know files that have not finished downloading
 
         if not os.path.exists(rnaseq_fastq_file):  # just here while I keep files permanently for debugging
             all_files_downloaded = False
+            
+            if os.path.exists(tmp_fastq_file):  # If an old tmp file exists, delete it to ensure a clean restart
+                print(f"Removing incomplete file: {tmp_fastq_file}")
+                os.remove(tmp_fastq_file)
+            
             print(f"Downloading {link} to {rnaseq_fastq_file}")
 
             if not link.startswith(('ftp://', 'http://')):
                 link = 'ftp://' + link
 
             # download_command = f"curl --connect-timeout 60 --speed-time 30 --speed-limit 10000 -o {rnaseq_fastq_file} {link}"
-            download_command = f"wget -c --tries={max_retries} --retry-connrefused -O {rnaseq_fastq_file} {link}"  # --limit-rate=1m  (or some other rate)
+            download_command = f"wget -c --tries={max_retries} --retry-connrefused -O {tmp_fastq_file} {link}"  # --limit-rate=1m  (or some other rate)
             # download_command = f"aria2c -x 16 -d {sample_out_folder} -o {os.path.basename(link)} -c {link}"
 
             try:
                 result = subprocess.run(download_command, shell=True, check=True)
+                os.rename(tmp_fastq_file, rnaseq_fastq_file)  # If successful, rename to final filename
             except subprocess.CalledProcessError as e:
                 print(f"Error downloading {link} to {rnaseq_fastq_file}")
                 print(e)
