@@ -47,6 +47,13 @@ reference_genome_gtf = os.path.join(reference_out_dir, "ensembl_grch37_release93
 
 # clean
 qc_against_gene_matrix = True
+save_vcf = True
+
+# for making VCF
+vcf_data_csv=os.path.join(reference_out_dir, "cosmic", "CancerMutationCensus_AllData_Tsv_v101_GRCh37", "CancerMutationCensus_AllData_v101_GRCh37_vcf_data.csv")
+cosmic_tsv=os.path.join(reference_out_dir, "cosmic", "CancerMutationCensus_AllData_Tsv_v101_GRCh37", "CancerMutationCensus_AllData_v101_GRCh37.tsv")
+cosmic_reference_genome_fasta=os.path.join(reference_out_dir, "ensembl_grch37_release93", "Homo_sapiens.GRCh37.dna.primary_assembly.fa")
+sequences="cdna"
 
 # summarize
 
@@ -122,6 +129,8 @@ if download_only:
 if number_of_threads_total > 10:
     print("WARNING: diminishing returns after 10 threads for downloading")
 
+if save_vcf and not os.path.exists(vcf_data_csv):  # alternatively, I can do this in vk clean by passing in vcf_data_csv=vcf_data_csv, cosmic_tsv=cosmic_tsv, cosmic_reference_genome_fasta=cosmic_reference_genome_fasta, variants="cosmic_cmc", sequences="cdna", cosmic_version=101
+    vk.utils.add_vcf_info_to_cosmic_tsv(cosmic_tsv=cosmic_tsv, reference_genome_fasta=cosmic_reference_genome_fasta, cosmic_df_out=vcf_data_csv, sequences=sequences, cosmic_version=101)
 
 def download_sequencing_total(
     record,
@@ -136,6 +145,8 @@ def download_sequencing_total(
     reference_genome_index=False,
     reference_genome_t2g=False,
     qc_against_gene_matrix=False,
+    save_vcf=False,
+    vcf_data_csv=None,
     number_of_threads_per_varseek_count_task=2,
 ):
     experiment_alias = record.get('experiment_alias')
@@ -210,6 +221,8 @@ def download_sequencing_total(
         qc_against_gene_matrix=qc_against_gene_matrix,
         out=vk_count_out_dir,
         threads=number_of_threads_per_varseek_count_task,
+        save_vcf=save_vcf,
+        vcf_data_csv=vcf_data_csv,
     )
 
     print(f"Finished vk.count on {sample}")
@@ -236,6 +249,8 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=number_of_tasks) as execu
             reference_genome_index=reference_genome_index,
             reference_genome_t2g=reference_genome_t2g,
             qc_against_gene_matrix=qc_against_gene_matrix,
+            save_vcf=save_vcf,
+            vcf_data_csv=vcf_data_csv,
             number_of_threads_per_varseek_count_task=number_of_threads_per_varseek_count_task,
         )
         for record in data_list_to_run

@@ -38,6 +38,12 @@ reference_genome_gtf = os.path.join(reference_out_dir, "ensembl_grch37_release93
 qc_against_gene_matrix = True
 account_for_strand_bias = True
 strand_bias_end = "5p"
+save_vcf = True
+# for making VCF
+vcf_data_csv=os.path.join(reference_out_dir, "cosmic", "CancerMutationCensus_AllData_Tsv_v101_GRCh37", "CancerMutationCensus_AllData_v101_GRCh37_vcf_data.csv")
+cosmic_tsv=os.path.join(reference_out_dir, "cosmic", "CancerMutationCensus_AllData_Tsv_v101_GRCh37", "CancerMutationCensus_AllData_v101_GRCh37.tsv")
+cosmic_reference_genome_fasta=os.path.join(reference_out_dir, "ensembl_grch37_release93", "Homo_sapiens.GRCh37.dna.primary_assembly.fa")
+sequences="cdna"
 
 # summarize
 
@@ -59,6 +65,9 @@ if qc_against_gene_matrix and (not os.path.exists(reference_genome_index) or not
     reference_genome_f1 = os.path.join(reference_out_dir, "ensembl_grch37_release93", "f1.fasta")
     subprocess.run(["kb", "ref", "-t", str(threads), "-i", reference_genome_index, "-g", reference_genome_t2g, "-f1", reference_genome_f1, reference_genome_fasta, reference_genome_gtf], check=True)
 
+if save_vcf and not os.path.exists(vcf_data_csv):  # alternatively, I can do this in vk clean by passing in vcf_data_csv=vcf_data_csv, cosmic_tsv=cosmic_tsv, cosmic_reference_genome_fasta=cosmic_reference_genome_fasta, variants="cosmic_cmc", sequences="cdna", cosmic_version=101
+    vk.utils.add_vcf_info_to_cosmic_tsv(cosmic_tsv=cosmic_tsv, reference_genome_fasta=cosmic_reference_genome_fasta, cosmic_df_out=vcf_data_csv, sequences=sequences, cosmic_version=101)
+
 vk_count_output_dict = vk.count(
     fastqs_dir,
     index=vcrs_index,
@@ -76,4 +85,6 @@ vk_count_output_dict = vk.count(
     strand_bias_end=strand_bias_end,
     out=vk_count_out_dir,
     threads=threads,
+    save_vcf=save_vcf,
+    vcf_data_csv=vcf_data_csv
 )

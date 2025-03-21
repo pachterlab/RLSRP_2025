@@ -13,6 +13,7 @@ dependencies:
   - samtools>=1.20
   - bowtie2>=2.5.4
   - seqtk>=1.4
-  - bioconductor-maftools
+  - bioconductor-maftools>=2.6.05
+  - gffread>=0.12.7
   - pip:
       - .  # . installs varseek from pyproject.toml
