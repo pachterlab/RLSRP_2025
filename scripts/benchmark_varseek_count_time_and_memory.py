@@ -430,7 +430,7 @@ for number_of_reads in number_of_reads_list:
 
     #     logger.info(f"kb count, reference genome, {number_of_reads} reads")
     #     script_title = f"kb count reference genome pseudoalignment {number_of_reads} reads {threads} threads"
-    #     _ = report_time_and_memory_of_script(subprocess_script_path, output_file = kb_reference_output_file, argparse_flags = str(kb_count_standard_index_command), script_title = script_title)
+    #     _ = report_time_and_memory_of_script(subprocess_script_path, output_file = kb_reference_output_file, argparse_flags = f'"{str(kb_count_standard_index_command)}"', script_title = script_title)
     #     # subprocess.run(kb_count_standard_index_command, check=True)
             
     #* Variant calling: varseek
@@ -475,7 +475,7 @@ for number_of_reads in number_of_reads_list:
         if not os.path.isfile(aligned_and_unmapped_bam):
             logger.info(f"STAR alignment, {number_of_reads} reads")
             script_title = f"STAR alignment {number_of_reads} reads {threads} threads"
-            _ = report_time_and_memory_of_script(subprocess_script_path, output_file = star_output_file, argparse_flags = str(star_align_command), script_title = script_title)
+            _ = report_time_and_memory_of_script(subprocess_script_path, output_file = star_output_file, argparse_flags = f'"{str(star_align_command)}"', script_title = script_title)
 
         #* Index BAM file
         bam_index_file = f"{aligned_and_unmapped_bam}.bai"
