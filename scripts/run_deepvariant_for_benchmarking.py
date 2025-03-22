@@ -25,7 +25,7 @@ parser.add_argument("--synthetic_read_fastq", help="Path to synthetic read FASTQ
 parser.add_argument("--reference_genome_fasta", help="Path to reference genome fasta")
 parser.add_argument("--reference_genome_gtf", help="Path to reference genome GTF")
 parser.add_argument("--star_genome_dir", default="", help="Path to star_genome_dir")
-parser.add_argument("--aligned_and_unmapped_bam", default="", help="Path to aligned_and_unmapped_bam. If not provided, will be created")
+parser.add_argument("--aligned_bam", default="", help="Path to aligned_bam. If not provided, will be created")
 parser.add_argument("--model_dir", default="model", help="Path to model files. If not provided, will be created")
 parser.add_argument("--out", default="out", help="Path to out folder")
 
@@ -54,7 +54,7 @@ read_length_minus_one = int(args.read_length) - 1
 min_coverage = args.min_coverage
 skip_accuracy_analysis = args.skip_accuracy_analysis
 synthetic_read_fastq = args.synthetic_read_fastq
-aligned_and_unmapped_bam = args.aligned_and_unmapped_bam
+aligned_bam = args.aligned_bam
 deepvariant_model = args.model_dir
 
 STAR = args.STAR
@@ -128,19 +128,18 @@ star_align_command = [
     "--sjdbOverhang", str(read_length_minus_one),
     "--outFileNamePrefix", out_file_name_prefix,
     "--outSAMtype", "BAM", "SortedByCoordinate",
-    "--outSAMunmapped", "Within",
     "--outSAMmapqUnique", "60",
     "--twopassMode", "Basic"
 ]
-if not os.path.exists(aligned_and_unmapped_bam):
-    aligned_and_unmapped_bam = f"{out_file_name_prefix}Aligned.sortedByCoord.out.bam"
+if not os.path.exists(aligned_bam):
+    aligned_bam = f"{out_file_name_prefix}Aligned.sortedByCoord.out.bam"
     os.makedirs(alignment_folder, exist_ok=True)
     run_command_with_error_logging(star_align_command)
 
 #* BAM index file creation
-bam_index_file = f"{aligned_and_unmapped_bam}.bai"
+bam_index_file = f"{aligned_bam}.bai"
 if not os.path.exists(bam_index_file):
-    _ = pysam.index(aligned_and_unmapped_bam)
+    _ = pysam.index(aligned_bam)
 
 #* Filtering by 3x coverage regions of BAM file
 generate_3x_coverage_files = [
@@ -151,7 +150,7 @@ generate_3x_coverage_files = [
     "mosdepth",
     "--threads", threads,
     f"{intermediate_results}/data_coverage",
-    aligned_and_unmapped_bam
+    aligned_bam
 ]
 if min_coverage > 1:
     run_command_with_error_logging(generate_3x_coverage_files)
@@ -187,7 +186,7 @@ deepvariant_command = [
     "--model_type=WES",
     f"--customized_model={deepvariant_model}/model.ckpt",
     f"--ref={reference_genome_fasta}",
-    f"--reads={aligned_and_unmapped_bam}",
+    f"--reads={aligned_bam}",
     f"--output_vcf={deepvariant_vcf}",
     f"--num_shards={os.cpu_count()}",
     "--make_examples_extra_args=split_skip_reads=true,channels=''",

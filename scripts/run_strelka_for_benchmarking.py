@@ -21,7 +21,7 @@ parser.add_argument("--synthetic_read_fastq", help="Path to synthetic read FASTQ
 parser.add_argument("--reference_genome_fasta", help="Path to reference genome fasta")
 parser.add_argument("--reference_genome_gtf", help="Path to reference genome GTF")
 parser.add_argument("--star_genome_dir", default="", help="Path to star_genome_dir")
-parser.add_argument("--aligned_and_unmapped_bam", default="", help="Path to aligned_and_unmapped_bam. If not provided, will be created")
+parser.add_argument("--aligned_bam", default="", help="Path to aligned_bam. If not provided, will be created")
 parser.add_argument("--out", default="out", help="Path to out folder")
 
 # Parameters
@@ -50,7 +50,7 @@ threads = args.threads
 read_length_minus_one = int(args.read_length) - 1
 skip_accuracy_analysis = args.skip_accuracy_analysis
 synthetic_read_fastq = args.synthetic_read_fastq
-aligned_and_unmapped_bam = args.aligned_and_unmapped_bam
+aligned_bam = args.aligned_bam
 
 STAR = args.STAR
 STRELKA_INSTALL_PATH = args.STRELKA_INSTALL_PATH
@@ -110,24 +110,23 @@ star_align_command = [
     "--sjdbOverhang", str(read_length_minus_one),
     "--outFileNamePrefix", out_file_name_prefix,
     "--outSAMtype", "BAM", "SortedByCoordinate",
-    "--outSAMunmapped", "Within",
     "--outSAMmapqUnique", "60",
     "--twopassMode", "Basic"
 ]
-if not os.path.exists(aligned_and_unmapped_bam):
-    aligned_and_unmapped_bam = f"{out_file_name_prefix}Aligned.sortedByCoord.out.bam"
+if not os.path.exists(aligned_bam):
+    aligned_bam = f"{out_file_name_prefix}Aligned.sortedByCoord.out.bam"
     run_command_with_error_logging(star_align_command)
 
 #* BAM index file creation
-bam_index_file = f"{aligned_and_unmapped_bam}.bai"
+bam_index_file = f"{aligned_bam}.bai"
 if not os.path.exists(bam_index_file):
     import pysam
-    _ = pysam.index(aligned_and_unmapped_bam)
+    _ = pysam.index(aligned_bam)
 
 #* Strelka2 variant calling configuration
 strelka2_configure_command = [
     f"{STRELKA_INSTALL_PATH}/bin/configureStrelkaGermlineWorkflow.py",
-    "--bam", aligned_and_unmapped_bam,
+    "--bam", aligned_bam,
     "--referenceFasta", reference_genome_fasta,
     "--rna",
     "--runDir", strelka2_output_dir

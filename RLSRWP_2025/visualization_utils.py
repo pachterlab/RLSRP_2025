@@ -4,7 +4,9 @@ from collections import Counter, defaultdict
 
 import scanpy as sc
 
+import re
 import matplotlib.pyplot as plt
+import math
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -364,6 +366,8 @@ def plot_overall_metrics(metric_dict_collection, primary_metrics=("accuracy", "s
     # Show the plot
     plt.tight_layout()
     if output_file:
+        if os.path.dirname(output_file):
+            os.makedirs(os.path.dirname(output_file), exist_ok=True)
         plt.savefig(output_file)
     if show:
         plt.show()
@@ -583,6 +587,8 @@ def create_stratified_metric_line_plot(unique_mcrs_df, x_stratification, y_metri
     # Show the plot
     plt.tight_layout()
     if output_file:
+        if os.path.dirname(output_file):
+            os.makedirs(os.path.dirname(output_file), exist_ok=True)
         plt.savefig(output_file)
     if show:
         plt.show()
@@ -961,6 +967,8 @@ def create_stratified_metric_bar_plot_updated(unique_mcrs_df, x_stratification, 
     plt.grid(axis="y", linestyle="--", alpha=0.7)
     plt.tight_layout()
     if output_file:
+        if os.path.dirname(output_file):
+            os.makedirs(os.path.dirname(output_file), exist_ok=True)
         plt.savefig(output_file)
     if show:
         plt.show()
@@ -1005,6 +1013,49 @@ def plot_frequency_histogram(unique_mcrs_df, column_base, tools, fraction=False,
     plt.tight_layout()
 
     if output_file:
+        if os.path.dirname(output_file):
+            os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        plt.savefig(output_file)
+    if show:
+        plt.show()
+    plt.close()
+
+
+def plot_time_and_memory_benchmarking(df, metric_name, units=None, log_y=False, x_col="Reads", y_col="Value_total", output_file=None, show=True):
+    df = df.copy()  # make a copy to avoid modifying the original DataFrame
+    df = df.loc[df["Metric"] == metric_name]
+       
+    tools = df["Tool"].unique()
+    tool_colors = {tool: color_map_20[i % len(color_map_20)] for i, tool in enumerate(tools)}
+
+    df[x_col] /= 1_000_000  # Convert to millions
+    x_ticks = sorted(df[x_col].unique())
+    
+    plt.figure(figsize=(6, 4))  # Adjust figure size
+    for tool in tools:
+        subset = df.loc[df["Tool"] == tool]
+        plt.plot(subset[x_col], subset[y_col], marker="o", linestyle="-", color=tool_colors[tool], label=tool)
+
+    ylabel = metric_name
+    if units:
+        ylabel += f" ({units})"
+    
+    plt.xlabel("Number of Reads (millions)")
+    plt.xticks(x_ticks)  # Set only the unique "Reads" values as x-ticks  (eg the only ticks marked are 1, 4, 16, 64, etc)
+    plt.ylabel(ylabel)
+    if log_y:
+        plt.yscale("log")
+        min_value = 10 ** math.floor(math.log10(min(df[y_col])))
+        max_value = 10 ** math.ceil(math.log10(max(df[y_col])))
+        y_ticks = np.logspace(math.log10(min_value), math.log10(max_value), num=int(math.log10(max_value) - math.log10(min_value)) + 1, base=10)
+        plt.yticks(y_ticks)
+        plt.gca().yaxis.set_major_formatter(FuncFormatter(lambda x, _: f"{int(x)}"))  # integers instead of scientific notation
+    # plt.legend(loc="upper left", fontsize=8)
+    # plt.title(f"{metric_name} vs Number of Reads")
+    # plt.ticklabel_format(style="plain", axis="x")  # remove the 1e7 in the bottom right
+    if output_file:
+        if os.path.dirname(output_file):
+            os.makedirs(os.path.dirname(output_file), exist_ok=True)
         plt.savefig(output_file)
     if show:
         plt.show()

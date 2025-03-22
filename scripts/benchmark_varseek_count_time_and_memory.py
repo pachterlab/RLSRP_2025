@@ -78,6 +78,8 @@ reference_genome_fasta = os.path.join(reference_out_dir, "ensembl_grch37_release
 reference_genome_gtf = os.path.join(reference_out_dir, "ensembl_grch37_release93", "Homo_sapiens.GRCh37.87.gtf")  # can either already exist or will be downloaded
 genomes1000_vcf = os.path.join(reference_out_dir, "ensembl_grch37_release93", "1000GENOMES-phase_3.vcf")
 star_genome_dir = os.path.join(reference_out_dir, "ensembl_grch37_release93", "star_reference")
+reference_genome_gtf_cleaned = ""  # os.path.join(reference_out_dir, "ensembl_grch37_release93", "gtf_cleaned.gtf")  # for varscan only
+exons_bed = ""  # os.path.join(reference_out_dir, "ensembl_grch37_release93", "exons.bed")  # for varscan only
 
 seqtk = "seqtk"
 STAR = "STAR"  # "/home/jmrich/opt/STAR-2.7.11b/bin/Linux_x86_64/STAR"
@@ -88,9 +90,9 @@ STRELKA_INSTALL_PATH = "/home/jmrich/opt/strelka-2.9.10.centos6_x86_64"
 python2_env = "python2_env"
 VARSCAN_INSTALL_PATH = "/home/jmrich/opt/VarScan.v2.3.9.jar"
 
-output_dir = os.path.join(data_dir, "benchmarking_out_dir")  #* change for each run
-tmp_dir = "tmp"
-overwrite = True
+output_dir = os.path.join(data_dir, "time_and_memory_benchmarking_out_dir")  #* change for each run
+tmp_dir = "/data/benchmarking_tmp"  #!! replace with "tmp"
+overwrite = False
 
 deepvariant_model = os.path.join(tmp_dir, "deepvariant_model")
 model_checkpoint_data_path = os.path.join(deepvariant_model, "model.ckpt.data-00000-of-00001")
@@ -114,7 +116,7 @@ os.makedirs(deepvariant_model, exist_ok=True)
 
 if not star_genome_dir:
     star_genome_dir = os.path.join(tmp_dir, "star_reference")
-vk_sim_out_dir = os.path.join(output_dir, "vk_sim_out")
+vk_sim_out_dir = os.path.join(tmp_dir, "vk_sim_out")
 
 if strand is None or strand == "both":
     kb_count_strand = "unstranded"
@@ -129,8 +131,10 @@ gatk_mutect2_script_path = os.path.join(script_dir, "run_gatk_mutect2_for_benchm
 strelka_script_path = os.path.join(script_dir, "run_strelka_for_benchmarking.py")
 varscan_script_path = os.path.join(script_dir, "run_varscan_for_benchmarking.py")
 deepvariant_script_path = os.path.join(script_dir, "run_deepvariant_for_benchmarking.py")
+subprocess_script_path = os.path.join(script_dir, "run_command_with_subprocess.py")
 
-star_output_file = os.path.join(output_dir, "STAR_time.txt")
+star_output_file = os.path.join(output_dir, "STAR_time_and_memory.txt")
+kb_reference_output_file = os.path.join(output_dir, "kb_reference_genome_time_and_memory.txt")
 
 # create synthetic reads
 if k and w:
@@ -162,25 +166,27 @@ if not os.path.exists(reference_cds_path):
 
 if not os.path.exists(cosmic_mutations_path):
     logger.info("Downloading COSMIC")
+    reference_out_dir_cosmic = os.path.dirname(os.path.dirname(cosmic_mutations_path))
     gget.cosmic(
         None,
         grch_version=37,
         cosmic_version=101,
-        out=reference_out_dir,
+        out=reference_out_dir_cosmic,
         mutation_class="cancer",
         download_cosmic=True,
     )
 
-cosmic_mutations = pd.read_csv(cosmic_mutations_path)
+with open(cosmic_mutations_path) as f:
+    number_of_cosmic_mutations = sum(1 for _ in f) - 1  # adjust for headers
+
+cosmic_mutations = pd.read_csv(cosmic_mutations_path, nrows=2)
+cosmic_mutations_path_original = cosmic_mutations_path.replace(".csv", "_original.csv")
+if not os.path.exists(cosmic_mutations_path_original):
+    shutil.copy(cosmic_mutations_path, cosmic_mutations_path_original)
 
 if "mutation_cdna" not in cosmic_mutations.columns:
     logger.info("Converting CDS to cDNA in COSMIC")
-    cosmic_mutations, _ = convert_mutation_cds_locations_to_cdna(input_csv_path=cosmic_mutations, output_csv_path=cosmic_mutations_path, cds_fasta_path=reference_cds_path, cdna_fasta_path=reference_cdna_path, logger=logger, verbose=True)
-
-if "header" not in cosmic_mutations.columns:
-    logger.info("Making header column in COSMIC")
-    cosmic_mutations["header"] = cosmic_mutations["seq_ID"] + ":" + cosmic_mutations["mutation_cdna"]
-    cosmic_mutations.to_csv(cosmic_mutations_path, index=False)
+    _, _ = convert_mutation_cds_locations_to_cdna(input_csv_path=cosmic_mutations_path, output_csv_path=cosmic_mutations_path, cds_fasta_path=reference_cds_path, cdna_fasta_path=reference_cdna_path, verbose=True)
 
 #* Make synthetic reads corresponding to the largest value in number_of_reads_list - if desired, I can replace this with real data
 number_of_reads_max = int(max(number_of_reads_list) * 10**6)  # convert to millions
@@ -189,41 +195,8 @@ number_of_reads_per_variant_alt=100
 number_of_reads_per_variant_ref=150
 number_of_reads_per_variant_total = number_of_reads_per_variant_alt + number_of_reads_per_variant_ref
 
-if number_of_reads_max > (len(cosmic_mutations) * number_of_reads_per_variant_total):
+if number_of_reads_max > (number_of_cosmic_mutations * number_of_reads_per_variant_total):
     raise ValueError("Max reads is too large. Either increase number_of_reads_per_variant_alt and/or number_of_reads_per_variant_ref, or choose a larger variant database.")
-
-number_of_variants_to_sample = number_of_reads_max // number_of_reads_per_variant_total
-fastq_output_path_max_reads = os.path.join(tmp_dir, f"reads_{number_of_reads_max}_fastq.fastq")
-
-if not os.path.isfile(fastq_output_path_max_reads):
-    logger.info(f"Building synthetic reads for {number_of_reads_max} reads")
-    _ = vk.sim(
-        variants = cosmic_mutations,
-        reads_fastq_out = fastq_output_path_max_reads,
-        number_of_variants_to_sample=number_of_variants_to_sample,
-        strand=strand,
-        number_of_reads_per_variant_alt=number_of_reads_per_variant_alt,
-        number_of_reads_per_variant_ref=number_of_reads_per_variant_ref,
-        read_length=read_length,
-        seed=random_seed,
-        add_noise_sequencing_error=add_noise_sequencing_error,
-        add_noise_base_quality=add_noise_base_quality,
-        error_rate=error_rate,
-        error_distribution=error_distribution,
-        max_errors=max_errors,
-        with_replacement=False,
-        gzip_reads_fastq_out=False,
-        sequences=reference_cdna_path,
-        seq_id_column=seq_id_column,
-        var_column=var_column,
-        var_id_column="header",
-        variant_type_column=None,
-        reference_out_dir=reference_out_dir,
-        out=vk_sim_out_dir,
-        k=k,
-        w=w,
-        make_dataframes=False
-    )
 
 #* Download varseek index
 if not os.path.exists(vk_ref_index_path) or not os.path.exists(vk_ref_t2g_path):
@@ -237,11 +210,11 @@ if not os.path.exists(vk_ref_small_k_index_path) or not os.path.exists(vk_ref_sm
         logger.info(f"Cannot download vk ref index/t2g with w={w_small} and k={k_small}. Will skip this condition")
 
 #* install seqtk if not installed
-if not is_program_installed(seqtk):
-    raise ValueError("seqtk is required to run this script. Please install seqtk and ensure that it is in your PATH.")
-    # subprocess.run("git clone https://github.com/lh3/seqtk.git", shell=True, check=True)
-    # subprocess.run("cd seqtk && make", shell=True, check=True)
-    # seqtk = os.path.join(script_dir, "seqtk/seqtk")
+# if not is_program_installed(seqtk):
+#     raise ValueError("seqtk is required to run this script. Please install seqtk and ensure that it is in your PATH.")
+#     # subprocess.run("git clone https://github.com/lh3/seqtk.git", shell=True, check=True)
+#     # subprocess.run("cd seqtk && make", shell=True, check=True)
+#     # seqtk = os.path.join(script_dir, "seqtk/seqtk")
 
 #* Build normal genome reference (for vk clean in vk count) when qc_against_gene_matrix=True
 if qc_against_gene_matrix and (not os.path.exists(reference_genome_index_path) or not os.path.exists(reference_genome_t2g_path)):  # download reference if does not exist
@@ -267,7 +240,7 @@ if any(tool in tools_that_require_star_alignment for tool in tools_to_benchmark)
 
     reference_genome_out_dir = os.path.dirname(reference_genome_gtf) if os.path.dirname(reference_genome_gtf) else "."
     os.makedirs(reference_genome_out_dir, exist_ok=True)
-    download_reference_genome_gtf_command = ["gget", "ref", "-w", "gtf", "-r", "93", "--out_dir", reference_genome_gtf, "-d", "human_grch37"]
+    download_reference_genome_gtf_command = ["gget", "ref", "-w", "gtf", "-r", "93", "--out_dir", reference_genome_out_dir, "-d", "human_grch37"]
     unzip_reference_genome_gtf_command = ["gunzip", f"{reference_genome_gtf}.gz"]
 
     if os.path.dirname(genomes1000_vcf):
@@ -314,9 +287,9 @@ if any(tool in tools_that_require_star_alignment for tool in tools_to_benchmark)
 
     #* Index reference genome
     if not os.path.exists(f"{reference_genome_fasta}.fai"):
-        start_time = time.time()
+        start_time = time.perf_counter()
         _ = pysam.faidx(reference_genome_fasta)
-        minutes, seconds = divmod(time.time() - start_time, 60)
+        minutes, seconds = divmod(time.perf_counter() - start_time, 60)
         with open(star_output_file, "a", encoding="utf-8") as f:
             f.write(f"Genome indexing runtime: {minutes} minutes, {seconds} seconds\n")
 
@@ -328,6 +301,16 @@ if any(tool in tools_that_require_star_alignment for tool in tools_to_benchmark)
 
     if not os.path.exists(f"{genomes1000_vcf}.idx"):
         run_command_with_error_logging(index_feature_file_command)
+
+if "varscan" in tools_to_benchmark:
+    if exons_bed and not os.path.isfile(exons_bed):
+        #* make a BED file of exon regions to speed up the process
+        if reference_genome_gtf_cleaned and not os.path.isfile(reference_genome_gtf_cleaned):
+            gffread_command = ["gffread", "-E", reference_genome_gtf, "-T", "-o", reference_genome_gtf_cleaned]  # gffread -E data/reference/ensembl_grch37_release93/Homo_sapiens.GRCh37.87.gtf -T -o gtf_cleaned.gtf
+            run_command_with_error_logging(gffread_command)
+
+        exon_bed_command = f"awk '$3 == \"exon\" {{print $1, $4-1, $5}}' OFS='\t' {reference_genome_gtf_cleaned} > {exons_bed}"  # awk '$3 == "exon" {print $1, $4-1, $5}' OFS='\t' gtf_cleaned.gtf > exons.bed
+        run_command_with_error_logging(exon_bed_command)
 
 if "deepvariant" in tools_to_benchmark:
     if not os.path.exists(model_checkpoint_data_path):
@@ -377,61 +360,99 @@ if "varscan" in tools_to_benchmark and not os.path.exists(VARSCAN_INSTALL_PATH):
     # subprocess.run(["wget", "-O", VARSCAN_INSTALL_PATH, "https://sourceforge.net/projects/varscan/files/VarScan.v2.3.9.jar/download"], check=True)
 
 output_file = os.path.join(output_dir, "time_and_memory_benchmarking_report.txt")
+# file_mode = "a" if os.path.isfile(output_file) else "w"
+# with open(output_file, file_mode, encoding="utf-8") as f:
+#     f.write(f"Threads Argument: {threads}\n\n")
 
 #* Run variant calling tools
 for number_of_reads in number_of_reads_list:
     number_of_reads = int(number_of_reads * 10**6)  # convert to millions
     fastq_output_path = os.path.join(tmp_dir, f"reads_{number_of_reads}_fastq.fastq")
-    if number_of_reads != number_of_reads_max:
-        seqtk_sample_command = f"{seqtk} sample -s {random_seed} {fastq_output_path_max_reads} {number_of_reads} > {fastq_output_path}"
-        subprocess.run(seqtk_sample_command, shell=True, check=True)
+    if not os.path.isfile(fastq_output_path):
+        # seqtk_sample_command = f"{seqtk} sample -s {random_seed} {fastq_output_path_max_reads} {number_of_reads} > {fastq_output_path}"
+        # logger.info(f"Running seqtk sample for {number_of_reads} reads")
+        # subprocess.run(seqtk_sample_command, shell=True, check=True)
+
+        number_of_variants_to_sample = number_of_reads // number_of_reads_per_variant_total
+
+        logger.info(f"Building synthetic reads for {number_of_reads} reads")
+        _ = vk.sim(
+            variants=cosmic_mutations_path,
+            reads_fastq_out=fastq_output_path,
+            number_of_variants_to_sample=number_of_variants_to_sample,
+            strand=strand,
+            number_of_reads_per_variant_alt=number_of_reads_per_variant_alt,
+            number_of_reads_per_variant_ref=number_of_reads_per_variant_ref,
+            read_length=read_length,
+            seed=random_seed,
+            add_noise_sequencing_error=add_noise_sequencing_error,
+            add_noise_base_quality=add_noise_base_quality,
+            error_rate=error_rate,
+            error_distribution=error_distribution,
+            max_errors=max_errors,
+            with_replacement=True,
+            gzip_reads_fastq_out=False,
+            sequences=reference_cdna_path,
+            seq_id_column=seq_id_column,
+            var_column=var_column,
+            variant_type_column=None,
+            reference_out_dir=reference_out_dir,
+            out=vk_sim_out_dir,
+            k=k,
+            w=w,
+            make_dataframes=False
+        )
 
     kb_count_reference_genome_out_dir = os.path.join(tmp_dir, f"kb_count_reference_genome_out_dir_{number_of_reads}")
-    if not os.path.exists(kb_count_reference_genome_out_dir):
-        # kb count, reference genome
-        kb_count_standard_index_command = [
-            "kb",
-            "count",
-            "-t",
-            str(threads),
-            "-i",
-            reference_genome_index_path,
-            "-g",
-            reference_genome_t2g_path,
-            "-x",
-            "bulk",
-            "--h5ad",
-            "--parity",
-            "single",
-            "--strand",
-            kb_count_strand,
-            "-o",
-            kb_count_reference_genome_out_dir,
-            fastq_output_path
-        ]
+    # # commented out because I now include this within vk count if I do it at all
+    # if not os.path.exists(kb_count_reference_genome_out_dir):
+    #     # kb count, reference genome
+    #     kb_count_standard_index_command = [
+    #         "kb",
+    #         "count",
+    #         "-t",
+    #         str(threads),
+    #         "-i",
+    #         reference_genome_index_path,
+    #         "-g",
+    #         reference_genome_t2g_path,
+    #         "-x",
+    #         "bulk",
+    #         "--h5ad",
+    #         "--parity",
+    #         "single",
+    #         "--strand",
+    #         kb_count_strand,
+    #         "-o",
+    #         kb_count_reference_genome_out_dir,
+    #         fastq_output_path
+    #     ]
 
-        logger.info(f"kb count, reference genome, {number_of_reads} reads")
-        subprocess.run(kb_count_standard_index_command, check=True)
+    #     logger.info(f"kb count, reference genome, {number_of_reads} reads")
+    #     script_title = f"kb count reference genome pseudoalignment {number_of_reads} reads {threads} threads"
+    #     _ = report_time_and_memory_of_script(subprocess_script_path, output_file = kb_reference_output_file, argparse_flags = str(kb_count_standard_index_command), script_title = script_title)
+    #     # subprocess.run(kb_count_standard_index_command, check=True)
             
     #* Variant calling: varseek
     if "varseek" in tools_to_benchmark:
         logger.info(f"varseek, {number_of_reads} reads")
         script_title = f"varseek {number_of_reads} reads {threads} threads"
-        vk_count_out_tmp = os.path.join(tmp_dir, f"vk_count_threads_{number_of_reads}_reads_out")
-        argparse_flags = f"--index {vk_ref_index_path} --t2g {vk_ref_t2g_path} --technology bulk --threads {threads} -k {k} --out {vk_count_out_tmp} --kb_count_reference_genome_out_dir {kb_count_reference_genome_out_dir} --disable_clean --disable_summarize --fastqs {fastq_output_path}"
+        vk_count_out_tmp = os.path.join(tmp_dir, f"vk_count_{number_of_reads}_reads")
+        argparse_flags = f"--index {vk_ref_index_path} --t2g {vk_ref_t2g_path} --technology bulk --threads {threads} -k {k} --out {vk_count_out_tmp} --kb_count_reference_genome_out_dir {kb_count_reference_genome_out_dir} --reference_genome_index {reference_genome_index_path} --reference_genome_t2g {reference_genome_t2g_path} --disable_clean --disable_summarize --fastqs {fastq_output_path}"
         print(f"python3 {vk_count_script_path} {argparse_flags}")
         if not dry_run:
             _ = report_time_and_memory_of_script(vk_count_script_path, output_file = output_file, argparse_flags = argparse_flags, script_title = script_title)
 
-    #* Variant calling: varseek with smaller k
-    if "varseek" in tools_to_benchmark and os.path.isfile(vk_ref_small_k_index_path) and os.path.isfile(vk_ref_small_k_t2g_path):
-        logger.info(f"varseek k={k_small}, {number_of_reads} reads")
-        script_title = f"varseek_k={k_small} {number_of_reads} reads {threads} threads"
-        vk_count_out_tmp = os.path.join(tmp_dir, f"vk_count_k{k_small}_reads_{number_of_reads}_out")
-        argparse_flags = f"--index {vk_ref_small_k_index_path} --t2g {vk_ref_small_k_t2g_path} --technology bulk --threads {threads} -k {k_small} --out {vk_count_out_tmp} -k {k_small} --kb_count_reference_genome_out_dir {kb_count_reference_genome_out_dir} --disable_clean --disable_summarize --fastqs {fastq_output_path}"
-        print(f"python3 {vk_count_script_path} {argparse_flags}")
-        if not dry_run:
-            _ = report_time_and_memory_of_script(vk_count_script_path, output_file = output_file, argparse_flags = argparse_flags, script_title = script_title)
+    #$ Best to leave commented out until I create an appropriate index (e.g., if I use an index with k=51 and run kb count with k=31, it'll take very long simply due to this discrepency)
+    # #* Variant calling: varseek with smaller k
+    # if "varseek" in tools_to_benchmark and os.path.isfile(vk_ref_small_k_index_path) and os.path.isfile(vk_ref_small_k_t2g_path):
+    #     logger.info(f"varseek k={k_small}, {number_of_reads} reads")
+    #     script_title = f"varseek_k={k_small} {number_of_reads} reads {threads} threads"
+    #     vk_count_out_tmp = os.path.join(tmp_dir, f"vk_count_k{k_small}_reads_{number_of_reads}_out")
+    #     argparse_flags = f"--index {vk_ref_small_k_index_path} --t2g {vk_ref_small_k_t2g_path} --technology bulk --threads {threads} -k {k_small} --out {vk_count_out_tmp} -k {k_small} --kb_count_reference_genome_out_dir {kb_count_reference_genome_out_dir} --disable_clean --disable_summarize --fastqs {fastq_output_path}"
+    #     print(f"python3 {vk_count_script_path} {argparse_flags}")
+    #     if not dry_run:
+    #         _ = report_time_and_memory_of_script(vk_count_script_path, output_file = output_file, argparse_flags = argparse_flags, script_title = script_title)
 
     if any(tool in tools_that_require_star_alignment for tool in tools_to_benchmark):
         #* STAR alignment
@@ -451,20 +472,36 @@ for number_of_reads in number_of_reads_list:
             "--twopassMode", "Basic"
         ]
 
-        logger.info(f"STAR alignment, {number_of_reads} reads")
         if not os.path.isfile(aligned_and_unmapped_bam):
-            elapsed_time = run_command_with_error_logging(star_align_command, track_time=True)
-            with open(star_output_file, "a", encoding="utf-8") as f:
-                f.write(f"STAR alignment runtime for {number_of_reads} reads: {elapsed_time[0]} minutes, {elapsed_time[1]} seconds\n")
+            logger.info(f"STAR alignment, {number_of_reads} reads")
+            script_title = f"STAR alignment {number_of_reads} reads {threads} threads"
+            _ = report_time_and_memory_of_script(subprocess_script_path, output_file = star_output_file, argparse_flags = str(star_align_command), script_title = script_title)
 
         #* Index BAM file
         bam_index_file = f"{aligned_and_unmapped_bam}.bai"
         if not os.path.isfile(bam_index_file):
-            start_time = time.time()
+            logger.info(f"BAM Indexing, {number_of_reads} reads, aligned and unmapped BAM (for GATK)")
+            start_time = time.perf_counter()
             _ = pysam.index(aligned_and_unmapped_bam)
-            minutes, seconds = divmod(time.time() - start_time, 60)
+            minutes, seconds = divmod(time.perf_counter() - start_time, 60)
             with open(star_output_file, "a", encoding="utf-8") as f:
-                f.write(f"BAM indexing runtime for {number_of_reads} reads: {minutes} minutes, {seconds} seconds\n")
+                f.write(f"BAM indexing runtime (aligned and unmapped, for GATK) for {number_of_reads} reads: {minutes} minutes, {seconds} seconds\n")
+        
+        #* Filter out unmapped reads (for non-GATK pipelines)
+        aligned_bam = f"{out_file_name_prefix}Aligned.sortedByCoord.aligned_only.bam"
+        if not os.path.isfile(aligned_bam):
+            logger.info(f"Filter out umapped reads for non-GATK pipelines, {number_of_reads} reads (because I could have simply run STAR without keeping unmapped reads, I should not count this against the other pipelines when considering total runtime)")
+            filter_command = f"samtools view -b -F 4 {aligned_and_unmapped_bam} > {aligned_bam}"
+            elapsed_time = run_command_with_error_logging(filter_command, track_time=True)
+        
+        aligned_bam_index_file = f"{aligned_bam}.bai"
+        if not os.path.isfile(aligned_bam_index_file):
+            logger.info(f"BAM Indexing, {number_of_reads} reads, aligned BAM only (for non-GATK)")
+            start_time = time.perf_counter()
+            _ = pysam.index(aligned_bam)
+            minutes, seconds = divmod(time.perf_counter() - start_time, 60)
+            with open(star_output_file, "a", encoding="utf-8") as f:
+                f.write(f"BAM indexing runtime (aligned-only, for non-GATK) for {number_of_reads} reads: {minutes} minutes, {seconds} seconds\n")
     
     if "gatk_haplotypecaller" in tools_to_benchmark:
         #* Variant calling: GATK HaplotypeCaller
@@ -491,7 +528,7 @@ for number_of_reads in number_of_reads_list:
         logger.info(f"Strelka2, {number_of_reads} reads")
         script_title = f"strelka2 {number_of_reads} reads {threads} threads"
         strelka2_output_dir = os.path.join(tmp_dir, f"strelka2_simulated_data_dir_{number_of_reads}_reads")
-        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --aligned_and_unmapped_bam {aligned_and_unmapped_bam} --out {strelka2_output_dir} --threads {threads} --read_length {read_length} --STRELKA_INSTALL_PATH {STRELKA_INSTALL_PATH} --python2_env {python2_env} --skip_accuracy_analysis"
+        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --aligned_bam {aligned_bam} --out {strelka2_output_dir} --threads {threads} --read_length {read_length} --STRELKA_INSTALL_PATH {STRELKA_INSTALL_PATH} --python2_env {python2_env} --skip_accuracy_analysis"
         print(f"python3 {strelka_script_path} {argparse_flags}")
         if not dry_run:
             _ = report_time_and_memory_of_script(strelka_script_path, output_file = output_file, argparse_flags = argparse_flags, script_title = script_title)
@@ -501,7 +538,7 @@ for number_of_reads in number_of_reads_list:
         logger.info(f"VarScan, {number_of_reads} reads")
         script_title = f"varscan {number_of_reads} reads {threads} threads"
         varscan_output_dir = os.path.join(tmp_dir, f"varscan_simulated_data_dir_{number_of_reads}_reads")
-        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --aligned_and_unmapped_bam {aligned_and_unmapped_bam} --out {varscan_output_dir} --threads {threads} --read_length {read_length} --VARSCAN_INSTALL_PATH {VARSCAN_INSTALL_PATH} --skip_accuracy_analysis"
+        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --aligned_bam {aligned_bam} --out {varscan_output_dir} --threads {threads} --read_length {read_length} --VARSCAN_INSTALL_PATH {VARSCAN_INSTALL_PATH} --reference_genome_gtf_cleaned {reference_genome_gtf_cleaned} --exons_bed {exons_bed} --skip_accuracy_analysis"
         print(f"python3 {varscan_script_path} {argparse_flags}")
         if not dry_run:
             _ = report_time_and_memory_of_script(varscan_script_path, output_file = output_file, argparse_flags = argparse_flags, script_title = script_title)
@@ -511,7 +548,7 @@ for number_of_reads in number_of_reads_list:
         logger.info(f"Deepvariant, {number_of_reads} reads")
         script_title = f"deepvariant {number_of_reads} reads {threads} threads"
         deepvariant_output_dir = os.path.join(tmp_dir, f"deepvariant_simulated_data_dir_{number_of_reads}_reads")
-        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --threads {threads} --read_length {read_length} --out {deepvariant_output_dir} --aligned_and_unmapped_bam {aligned_and_unmapped_bam} --model_dir {deepvariant_model} --threads {threads} --read_length {read_length} --skip_accuracy_analysis"
+        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --threads {threads} --read_length {read_length} --out {deepvariant_output_dir} --aligned_bam {aligned_bam} --model_dir {deepvariant_model} --threads {threads} --read_length {read_length} --skip_accuracy_analysis"
         print(f"python3 {deepvariant_script_path} {argparse_flags}")
         if not dry_run:
             _ = report_time_and_memory_of_script(deepvariant_script_path, output_file = output_file, argparse_flags = argparse_flags, script_title = script_title)

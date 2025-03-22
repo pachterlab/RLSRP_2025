@@ -20,5 +20,6 @@ vk.ref(
     verbose=True,
     save_variants_updated_csv=True,
     save_variants_updated_exploded_vk_info_csv=True,
+    save_variants_updated_filtered_csvs=True,
     dlist_reference_source="t2t",
 )
