@@ -1021,7 +1021,7 @@ def plot_frequency_histogram(unique_mcrs_df, column_base, tools, fraction=False,
     plt.close()
 
 
-def plot_time_and_memory_benchmarking(df, metric_name, units=None, log_y=False, x_col="Reads", y_col="Value_total", output_file=None, show=True):
+def plot_time_and_memory_benchmarking(df, metric_name, units=None, log_y=False, x_col="Reads", y_col="Value_total", y_thresholds=None, output_file=None, show=True):
     df = df.copy()  # make a copy to avoid modifying the original DataFrame
     df = df.loc[df["Metric"] == metric_name]
        
@@ -1050,6 +1050,17 @@ def plot_time_and_memory_benchmarking(df, metric_name, units=None, log_y=False, 
         y_ticks = np.logspace(math.log10(min_value), math.log10(max_value), num=int(math.log10(max_value) - math.log10(min_value)) + 1, base=10)
         plt.yticks(y_ticks)
         plt.gca().yaxis.set_major_formatter(FuncFormatter(lambda x, _: f"{int(x)}"))  # integers instead of scientific notation
+    if y_thresholds is not None:
+        for key, value in y_thresholds.items():
+            plt.axhline(y=value, color='gray', linestyle="--", label=key)
+            plt.text(
+                x=plt.xlim()[1],  # Right side of the plot
+                y=value, 
+                s=key, 
+                color='gray', 
+                ha='right', 
+                va='bottom'  # Position text above the line
+            )
     # plt.legend(loc="upper left", fontsize=8)
     # plt.title(f"{metric_name} vs Number of Reads")
     # plt.ticklabel_format(style="plain", axis="x")  # remove the 1e7 in the bottom right
