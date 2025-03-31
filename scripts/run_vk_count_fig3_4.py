@@ -24,7 +24,7 @@ number_of_threads_per_varseek_count_task = 4
 max_retries = 5
 download_only = True  #!!! change to False
 delete_fastq_files = False
-sequencing_data_out_base = os.path.join(data_dir, sequencing_data_base)
+sequencing_data_out_base = os.path.join(data_dir, f"{sequencing_data_base}_data_base")
 
 # reference parameters
 vk_ref_out = os.path.join(data_dir, "vk_ref_out")

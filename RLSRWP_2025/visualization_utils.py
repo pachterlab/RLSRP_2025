@@ -1021,9 +1021,12 @@ def plot_frequency_histogram(unique_mcrs_df, column_base, tools, fraction=False,
     plt.close()
 
 
-def plot_time_and_memory_benchmarking(df, metric_name, units=None, log_y=False, x_col="Reads", y_col="Value_total", y_thresholds=None, output_file=None, show=True):
+def plot_time_and_memory_benchmarking(df, metric_name, units=None, log_x=False, log_y=False, x_col="Reads", y_col="Value_total", y_thresholds=None, plot_extrapolated=False, output_file=None, show=True):
     df = df.copy()  # make a copy to avoid modifying the original DataFrame
     df = df.loc[df["Metric"] == metric_name]
+
+    if "Extrapolated" not in df.columns:
+        df["Extrapolated"] = False
        
     tools = df["Tool"].unique()
     tool_colors = {tool: color_map_20[i % len(color_map_20)] for i, tool in enumerate(tools)}
@@ -1033,16 +1036,53 @@ def plot_time_and_memory_benchmarking(df, metric_name, units=None, log_y=False, 
     
     plt.figure(figsize=(6, 4))  # Adjust figure size
     for tool in tools:
-        subset = df.loc[df["Tool"] == tool]
-        plt.plot(subset[x_col], subset[y_col], marker="o", linestyle="-", color=tool_colors[tool], label=tool)
+        if not plot_extrapolated:
+            subset = df.loc[(df["Tool"] == tool) & (df["Extrapolated"] == False)].sort_values(by=x_col)
+            plt.plot(subset[x_col], subset[y_col], marker="o", linestyle="-", color=tool_colors[tool], label=tool)
+        else:
+            # Separate real and extrapolated values
+            subset = df[df["Tool"] == tool].sort_values(by=x_col)
+            real_subset = subset[subset["Extrapolated"] == False]
+            extrapolated_subset = subset[subset["Extrapolated"] == True]
+            
+            # Get last real point and first extrapolated point
+            if not real_subset.empty and not extrapolated_subset.empty:
+                last_real = real_subset.iloc[-1]
+                first_extrapolated = extrapolated_subset.iloc[0]
+
+                # Plot the transition segment as a dashed line
+                plt.plot(
+                    [last_real[x_col], first_extrapolated[x_col]],
+                    [last_real[y_col], first_extrapolated[y_col]],
+                    linestyle="--",
+                    color=tool_colors[tool]
+                )
+
+            # Plot real values (solid line, filled circle)
+            plt.plot(
+                real_subset[x_col], real_subset[y_col], 
+                marker="o", linestyle="-", 
+                color=tool_colors[tool], label=tool
+            )
+
+            # Plot extrapolated values (dashed line, open circle)
+            plt.plot(
+                extrapolated_subset[x_col], extrapolated_subset[y_col], 
+                marker="o", linestyle="--", 
+                color=tool_colors[tool], markerfacecolor="none"
+            )
 
     ylabel = metric_name
     if units:
         ylabel += f" ({units})"
     
+    plt.grid(which="major", axis="y", linestyle="--", linewidth=0.7, color="gray", alpha=0.6)
     plt.xlabel("Number of Reads (millions)")
     plt.xticks(x_ticks)  # Set only the unique "Reads" values as x-ticks  (eg the only ticks marked are 1, 4, 16, 64, etc)
     plt.ylabel(ylabel)
+    if log_x:
+        plt.xscale("log")
+        plt.gca().xaxis.set_major_formatter(FuncFormatter(lambda x, _: f"{int(x)}"))
     if log_y:
         plt.yscale("log")
         min_value = 10 ** math.floor(math.log10(min(df[y_col])))

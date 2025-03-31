@@ -32,10 +32,16 @@ reference_out_dir = os.path.join(data_dir, "reference")
 
 all_supported_tools_to_benchmark = {"varseek", "gatk_haplotypecaller", "gatk_mutect2", "strelka2", "varscan", "deepvariant"}
 tools_that_require_star_alignment = {"gatk_haplotypecaller", "gatk_mutect2", "strelka2", "varscan", "deepvariant"}
+tools_read_counts_limit = {"varseek": float("inf"),
+                                "gatk_haplotypecaller": 64,
+                                "gatk_mutect2": 64,
+                                "strelka2": float("inf"),
+                                "varscan": 256,
+                                "deepvariant": float("inf")}  # don't run if number_of_reads is above this value (will run if less than or equal to)
 
 ### ARGUMENTS ###
 number_of_reads_list = [1, 4, 16, 64, 256, 1024]  # number of reads, in millions  # for debugging: [0.001, 0.002]
-tools_to_benchmark = ["varseek", "gatk_haplotypecaller", "gatk_mutect2", "strelka2", "varscan", "deepvariant"]
+tools_to_benchmark = ["varseek", "gatk_haplotypecaller", "gatk_mutect2", "strelka2", "varscan", "deepvariant"]  # tools to use; to add a tool, you must simply (1) include the tool in all_supported_tools_to_benchmark and tools_to_benchmark, (2) add a condition to run the script with the tool (see the bottom of this file), and (3) write the script that takes in necessary arguments and runs the tool
 dry_run = False  # only applies to the variant calling steps, not to the preparation (ie STAR, data downloads, etc)
 
 read_length = 150
@@ -78,8 +84,8 @@ reference_genome_fasta = os.path.join(reference_out_dir, "ensembl_grch37_release
 reference_genome_gtf = os.path.join(reference_out_dir, "ensembl_grch37_release93", "Homo_sapiens.GRCh37.87.gtf")  # can either already exist or will be downloaded
 genomes1000_vcf = os.path.join(reference_out_dir, "ensembl_grch37_release93", "1000GENOMES-phase_3.vcf")
 star_genome_dir = os.path.join(reference_out_dir, "ensembl_grch37_release93", "star_reference")
-reference_genome_gtf_cleaned = ""  # os.path.join(reference_out_dir, "ensembl_grch37_release93", "gtf_cleaned.gtf")  # for varscan only
-exons_bed = ""  # os.path.join(reference_out_dir, "ensembl_grch37_release93", "exons.bed")  # for varscan only
+reference_genome_gtf_cleaned = os.path.join(reference_out_dir, "ensembl_grch37_release93", "gtf_cleaned.gtf")  # for varscan only; to exclude, use None
+exons_bed = os.path.join(reference_out_dir, "ensembl_grch37_release93", "exons.bed")  # for varscan only; to exclude, use None
 
 seqtk = "seqtk"
 STAR = "STAR"  # "/home/jmrich/opt/STAR-2.7.11b/bin/Linux_x86_64/STAR"
@@ -90,8 +96,8 @@ STRELKA_INSTALL_PATH = "/home/jmrich/opt/strelka-2.9.10.centos6_x86_64"
 python2_env = "python2_env"
 VARSCAN_INSTALL_PATH = "/home/jmrich/opt/VarScan.v2.3.9.jar"
 
-output_dir = os.path.join(data_dir, "time_and_memory_benchmarking_out_dir")  #* change for each run
-tmp_dir = "/data/benchmarking_tmp"  #!! replace with "tmp"
+output_dir = os.path.join(data_dir, "time_and_memory_benchmarking_out_dir_20250324")  #* change for each run
+tmp_dir = "/data/benchmarking_tmp_20250324"  #!! replace with "tmp"
 overwrite = False
 
 deepvariant_model = os.path.join(tmp_dir, "deepvariant_model")
@@ -304,7 +310,7 @@ if any(tool in tools_that_require_star_alignment for tool in tools_to_benchmark)
 
 if "varscan" in tools_to_benchmark:
     if exons_bed and not os.path.isfile(exons_bed):
-        #* make a BED file of exon regions to speed up the process
+        #* make a BED file of exon regions to speed up the process (note that, while this is useful for time and memory benchmarking, it does not really work in terms of putting out an accurate VCF)
         if reference_genome_gtf_cleaned and not os.path.isfile(reference_genome_gtf_cleaned):
             gffread_command = ["gffread", "-E", reference_genome_gtf, "-T", "-o", reference_genome_gtf_cleaned]  # gffread -E data/reference/ensembl_grch37_release93/Homo_sapiens.GRCh37.87.gtf -T -o gtf_cleaned.gtf
             run_command_with_error_logging(gffread_command)
@@ -434,7 +440,7 @@ for number_of_reads in number_of_reads_list:
     #     # subprocess.run(kb_count_standard_index_command, check=True)
             
     #* Variant calling: varseek
-    if "varseek" in tools_to_benchmark:
+    if "varseek" in tools_to_benchmark and number_of_reads <= tools_read_counts_limit["varseek"]:
         logger.info(f"varseek, {number_of_reads} reads")
         script_title = f"varseek {number_of_reads} reads {threads} threads"
         vk_count_out_tmp = os.path.join(tmp_dir, f"vk_count_{number_of_reads}_reads")
@@ -445,7 +451,7 @@ for number_of_reads in number_of_reads_list:
 
     #$ Best to leave commented out until I create an appropriate index (e.g., if I use an index with k=51 and run kb count with k=31, it'll take very long simply due to this discrepency)
     # #* Variant calling: varseek with smaller k
-    # if "varseek" in tools_to_benchmark and os.path.isfile(vk_ref_small_k_index_path) and os.path.isfile(vk_ref_small_k_t2g_path):
+    # if "varseek" in tools_to_benchmark and os.path.isfile(vk_ref_small_k_index_path) and os.path.isfile(vk_ref_small_k_t2g_path) and number_of_reads <= tools_read_counts_limit["varseek"]:
     #     logger.info(f"varseek k={k_small}, {number_of_reads} reads")
     #     script_title = f"varseek_k={k_small} {number_of_reads} reads {threads} threads"
     #     vk_count_out_tmp = os.path.join(tmp_dir, f"vk_count_k{k_small}_reads_{number_of_reads}_out")
@@ -503,7 +509,7 @@ for number_of_reads in number_of_reads_list:
             with open(star_output_file, "a", encoding="utf-8") as f:
                 f.write(f"BAM indexing runtime (aligned-only, for non-GATK) for {number_of_reads} reads: {minutes} minutes, {seconds} seconds\n")
     
-    if "gatk_haplotypecaller" in tools_to_benchmark:
+    if "gatk_haplotypecaller" in tools_to_benchmark and number_of_reads <= tools_read_counts_limit["gatk_haplotypecaller"]:
         #* Variant calling: GATK HaplotypeCaller
         logger.info(f"GATK HaplotypeCaller, {number_of_reads} reads")
         script_title = f"gatk_haplotypecaller {number_of_reads} reads {threads} threads"
@@ -513,7 +519,7 @@ for number_of_reads in number_of_reads_list:
         if not dry_run:
             _ = report_time_and_memory_of_script(gatk_haplotypecaller_script_path, output_file = output_file, argparse_flags = argparse_flags, script_title = script_title)
 
-    if "gatk_mutect2" in tools_to_benchmark:
+    if "gatk_mutect2" in tools_to_benchmark and number_of_reads <= tools_read_counts_limit["gatk_mutect2"]:
         #* Variant calling: GATK Mutect2
         logger.info(f"GATK Mutect2, {number_of_reads} reads")
         script_title = f"gatk_mutect2 {number_of_reads} reads {threads} threads"
@@ -523,7 +529,7 @@ for number_of_reads in number_of_reads_list:
         if not dry_run:
             _ = report_time_and_memory_of_script(gatk_mutect2_script_path, output_file = output_file, argparse_flags = argparse_flags, script_title = script_title)
 
-    if "strelka2" in tools_to_benchmark:
+    if "strelka2" in tools_to_benchmark and number_of_reads <= tools_read_counts_limit["strelka2"]:
         #* Variant calling: Strelka2
         logger.info(f"Strelka2, {number_of_reads} reads")
         script_title = f"strelka2 {number_of_reads} reads {threads} threads"
@@ -533,17 +539,19 @@ for number_of_reads in number_of_reads_list:
         if not dry_run:
             _ = report_time_and_memory_of_script(strelka_script_path, output_file = output_file, argparse_flags = argparse_flags, script_title = script_title)
 
-    if "varscan" in tools_to_benchmark:
+    if "varscan" in tools_to_benchmark and number_of_reads <= tools_read_counts_limit["varscan"]:
         #* Variant calling: VarScan
         logger.info(f"VarScan, {number_of_reads} reads")
         script_title = f"varscan {number_of_reads} reads {threads} threads"
         varscan_output_dir = os.path.join(tmp_dir, f"varscan_simulated_data_dir_{number_of_reads}_reads")
-        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --aligned_bam {aligned_bam} --out {varscan_output_dir} --threads {threads} --read_length {read_length} --VARSCAN_INSTALL_PATH {VARSCAN_INSTALL_PATH} --reference_genome_gtf_cleaned {reference_genome_gtf_cleaned} --exons_bed {exons_bed} --skip_accuracy_analysis"
+        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --aligned_bam {aligned_bam} --out {varscan_output_dir} --threads {threads} --read_length {read_length} --VARSCAN_INSTALL_PATH {VARSCAN_INSTALL_PATH} --reference_genome_gtf_cleaned {reference_genome_gtf_cleaned} --skip_accuracy_analysis"
+        if exons_bed:
+            argparse_flags += f" --exons_bed {exons_bed}"
         print(f"python3 {varscan_script_path} {argparse_flags}")
         if not dry_run:
             _ = report_time_and_memory_of_script(varscan_script_path, output_file = output_file, argparse_flags = argparse_flags, script_title = script_title)
 
-    if "deepvariant" in tools_to_benchmark:
+    if "deepvariant" in tools_to_benchmark and number_of_reads <= tools_read_counts_limit["deepvariant"]:
         #* Variant calling: Deepvariant
         logger.info(f"Deepvariant, {number_of_reads} reads")
         script_title = f"deepvariant {number_of_reads} reads {threads} threads"

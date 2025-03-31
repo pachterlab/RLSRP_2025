@@ -421,7 +421,6 @@ def create_mutated_gene_count_matrix_from_mutation_count_matrix(adata, sum_strat
 def perform_analysis(vcf_file, unique_mcrs_df_path, cosmic_df, plot_output_folder = "plots", unique_mcrs_df_path_out = None, package_name = "tool"):
     if not unique_mcrs_df_path_out:
         unique_mcrs_df_path_out = unique_mcrs_df_path
-        # unique_mcrs_df_out = unique_mcrs_df_path.replace(".csv", f"_with_{package_name}.csv")
 
     #* Merging into COSMIC
     # Convert VCF to DataFrame
@@ -491,4 +490,4 @@ def perform_analysis(vcf_file, unique_mcrs_df_path, cosmic_df, plot_output_folde
     create_venn_diagram(true_set, positive_set_including_noncosmic_mutations, TN = metric_dictionary_reference['TN'], out_path = f"{plot_output_folder}/venn_diagram_reference_including_noncosmics_{package_name}.png")
 
     unique_mcrs_df.rename(columns={'TP': f'TP_{package_name}', 'FP': f'FP_{package_name}', 'TN': f'TN_{package_name}', 'FN': f'FN_{package_name}', 'mutation_expression_prediction_error': f'mutation_expression_prediction_error_{package_name}'}, inplace=True)
-    unique_mcrs_df.to_csv(unique_mcrs_df_out, index=False)
+    unique_mcrs_df.to_csv(unique_mcrs_df_path_out, index=False)
