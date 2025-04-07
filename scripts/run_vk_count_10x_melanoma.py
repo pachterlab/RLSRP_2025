@@ -1,6 +1,5 @@
 import os
 import subprocess
-import sys
 import varseek as vk
 
 # more on the dataset: https://www.10xgenomics.com/datasets/melanoma-tumor-derived-cells-v-2-2-standard-4-0-0
@@ -11,9 +10,6 @@ vk_count_out_dir = os.path.join(data_dir, "vk_count_out_fig1")
 kb_count_reference_genome_dir = os.path.join(data_dir, "vk_count_out_reference_genome_fig1")
 reference_out_dir = os.path.join(data_dir, "reference")
 
-SRR_Acc_List_path = os.path.join(data_dir, "SRA", "PRJNA330719", "SRR_Acc_List.txt")  # find the raw data here: https://www.ncbi.nlm.nih.gov/Traces/study/?query_key=4&WebEnv=MCID_67eecb767ec86104c28549e7&o=acc_s%3Aa  # find the GEO here: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE84465
-download_only = False
-
 # reference parameters
 vk_ref_out = os.path.join(data_dir, "vk_ref_out")
 vcrs_index = os.path.join(vk_ref_out, "vcrs_index.idx")
@@ -23,10 +19,9 @@ k=51
 dlist_reference_source = "t2t"
 
 # general vk count parameters
-fastqs_dir = os.path.join(data_dir, "glioblastoma_smartseq_fastq_data")
-technology = "SMARTSEQ2"
-parity = "paired"
-threads = 16
+fastqs_dir = os.path.join(data_dir, "sc5p_v2_hs_melanoma_10k_fastqs")
+technology = "10xv2"
+threads = 2
 
 # fastqpp
 quality_control_fastqs = True
@@ -41,6 +36,8 @@ reference_genome_gtf = os.path.join(reference_out_dir, "ensembl_grch37_release93
 
 # clean
 qc_against_gene_matrix = True
+account_for_strand_bias = True
+strand_bias_end = "5p"
 save_vcf = True
 
 # for qc_against_gene_matrix - same as from vk ref/build (not essential but speeds things up)
@@ -59,23 +56,8 @@ sequences="cdna"
 
 # check for fastqs
 if not os.path.isdir(fastqs_dir) or len(os.listdir(fastqs_dir)) == 0:
-    if not os.path.isfile(SRR_Acc_List_path):
-        raise ValueError(f"Must have {SRR_Acc_List_path} downloaded to run this script. Download the accession numbers list file from this link: https://www.ncbi.nlm.nih.gov/Traces/study/?query_key=4&WebEnv=MCID_67eecb767ec86104c28549e7&o=acc_s%3Aa")
-    with open(SRR_Acc_List_path) as f:
-        srr_list = f.read().split()
-    try:
-        print("Downloading fastq files (289.54GB for .sra files, 2.3T for .fastq files)")
-        data_download_command = ["fasterq-dump", "--outdir", fastqs_dir, "--threads", str(threads), "--progress", "--split-files"] + srr_list
-        subprocess.run(data_download_command, check=True)
-        # print(" ".join(data_download_command))
-        print(f"Fastq data downloaded successfully to {fastqs_dir}")
-    except Exception as e:
-        print(f"Error running fasterq-dump: {e}")
-        raise  # re-raises the original exception
-
-if download_only:
-    print("download_only=True. Exiting script.")
-    sys.exit()
+    subprocess.run(["curl", "-P", data_dir, "https://s3-us-west-2.amazonaws.com/10x.files/samples/cell-vdj/4.0.0/sc5p_v2_hs_melanoma_10k/sc5p_v2_hs_melanoma_10k_fastqs.tar"], check=True)
+    subprocess.run(["tar", "-xvf", f"{fastqs_dir}.tar", "-C", fastqs_dir], check=True)
 
 # check for VCRS reference files
 if not os.path.isdir(vk_ref_out) or len(os.listdir(vk_ref_out)) == 0:
@@ -106,7 +88,8 @@ vk_count_output_dict = vk.count(
     reference_genome_t2g=reference_genome_t2g,
     kb_count_reference_genome_out_dir=kb_count_reference_genome_dir,
     qc_against_gene_matrix=qc_against_gene_matrix,
-    parity=parity,
+    account_for_strand_bias=account_for_strand_bias,
+    strand_bias_end=strand_bias_end,
     out=vk_count_out_dir,
     threads=threads,
     save_vcf=save_vcf,
