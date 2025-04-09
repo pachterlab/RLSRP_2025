@@ -29,7 +29,6 @@ overwrite_vk_count = False
 sequencing_data_out_base = os.path.join(data_dir, f"{sequencing_data_base}_data_base")
 geuvadis_rna_json_file = os.path.join(sequencing_data_out_base, f"{sequencing_data_base}_metadata.json")
 metadata_tsv_file = os.path.join(sequencing_data_out_base, "igsr_GRCh38.tsv")  # can be found at https://www.internationalgenome.org/data-portal/data-collection/grch38
-#!!! "/Users/joeyrich/Downloads/geuvadis_wxs.tsv"
 
 # reference parameters
 vk_ref_out = os.path.join(data_dir, "vk_ref_out")

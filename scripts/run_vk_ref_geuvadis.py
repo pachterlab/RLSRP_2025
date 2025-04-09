@@ -8,7 +8,9 @@ import json
 import varseek as vk
 from varseek.utils import is_program_installed, vcf_to_dataframe, assign_transcript_and_cds, add_variant_type, reverse_complement, write_to_vcf, add_variant_type_column_to_vcf_derived_df, add_variant_column_to_vcf_derived_df
 from varseek.constants import mutation_pattern
-from RLSRWP_2025.utils import make_transcript_df_from_gtf, convert_vcf_samples_to_anndata
+from RLSRWP_2025.seq_utils import make_transcript_df_from_gtf, convert_vcf_samples_to_anndata
+
+from pdb import set_trace as st
 
 # more on the datasets:
     # Geuvadis: 
@@ -57,18 +59,21 @@ geuvadis_rna_json_file = os.path.join(geuvadis_reference_files_dir, "geuvadis_me
 if not os.path.exists(geuvadis_rna_json_file):
     json_url = "https://www.ebi.ac.uk/ena/portal/api/filereport?accession=PRJEB3366&result=read_run&fields=study_accession,sample_accession,experiment_accession,run_accession,scientific_name,library_strategy,experiment_title,experiment_alias,fastq_bytes,fastq_ftp,sra_ftp,sample_title&format=json&download=true&limit=0"
     sequencing_metadata_download_command = ["wget", "-q", "-O", geuvadis_rna_json_file, json_url]
+    if os.path.dirname(geuvadis_rna_json_file) and not os.path.exists(os.path.dirname(geuvadis_rna_json_file)):
+        os.makedirs(os.path.dirname(geuvadis_rna_json_file), exist_ok=True)
     subprocess.run(sequencing_metadata_download_command, check=True)
 
 #* download cDNA
+os.makedirs(ensembl_reference_files_dir, exist_ok=True)
 if not os.path.exists(sequences):
-    gget_ref_command = ["gget", "ref", "-w", "cdna", "-r", "113", "--out_dir", ensembl_reference_files_dir, "-d", "human"]
+    gget_ref_command = ["gget", "ref", "-w", "cdna", "-r", "113", "--out_dir", ensembl_reference_files_dir, "-d", "human_grch37"]
     subprocess.run(gget_ref_command, check=True)
     unzip_command = ["gunzip", f"{sequences}.gz"]
     subprocess.run(unzip_command, check=True)
 
 #* download gtf
 if not os.path.exists(reference_genome_gtf):
-    gget_ref_command = ["gget", "ref", "-w", "cdna", "-r", "113", "--out_dir", ensembl_reference_files_dir, "-d", "human"]
+    gget_ref_command = ["gget", "ref", "-w", "gtf", "-r", "113", "--out_dir", ensembl_reference_files_dir, "-d", "human_grch37"]
     subprocess.run(gget_ref_command, check=True)
     unzip_command = ["gunzip", f"{reference_genome_gtf}.gz"]
     subprocess.run(unzip_command, check=True)
@@ -115,7 +120,7 @@ if not os.path.exists(variants):  # transcriptome variants don't exist
     ids_not_correctly_recorded = set()
     for dbsnp_id in variants_plink_df['ID']:
         try:
-            url = f"https://rest.ensembl.org/vep/human/id/{dbsnp_id}?hgvs=1"
+            url = f"https://grch37.rest.ensembl.org/vep/human/id/{dbsnp_id}?hgvs=1"
             response = requests.get(url, headers=headers)
             hgvsc = None
             for entry in response.json():

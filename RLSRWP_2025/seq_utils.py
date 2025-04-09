@@ -536,7 +536,7 @@ def make_transcript_df_from_gtf(gtf):
     return gtf_df, transcript_df
 
 
-def convert_vcf_samples_to_anndata(vcf_path, adata_out=None, sample_titles_set=None):
+def convert_vcf_samples_to_anndata(vcf_path, adata_out=None, sample_titles_set=None, total=None):
     from cyvcf2 import VCF
 
     vcf = VCF(vcf_path)
@@ -556,7 +556,7 @@ def convert_vcf_samples_to_anndata(vcf_path, adata_out=None, sample_titles_set=N
     variant_ids = []
     has_id = []
 
-    for var_idx, variant in tqdm(enumerate(vcf), desc="Processing VCF", unit="variants", total=39728178):
+    for var_idx, variant in tqdm(enumerate(vcf), desc="Processing VCF", unit="variants", total=total):
         genotypes = variant.genotypes  # List of [GT1, GT2, phased, ...]
         if not genotypes or len(genotypes) != n_samples:
             continue  # Skip malformed rows

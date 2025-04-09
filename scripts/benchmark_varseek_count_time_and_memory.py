@@ -88,7 +88,7 @@ reference_genome_gtf_cleaned = os.path.join(reference_out_dir, "ensembl_grch37_r
 exons_bed = os.path.join(reference_out_dir, "ensembl_grch37_release93", "exons.bed")  # for varscan only; to exclude, use None
 
 seqtk = "seqtk"
-STAR = "STAR"  # "/home/jmrich/opt/STAR-2.7.11b/bin/Linux_x86_64/STAR"
+STAR = "STAR"
 java = "/home/jmrich/opt/jdk-17.0.12+7/bin/java"
 picard_jar = "/home/jmrich/opt/picard.jar"
 gatk = "/home/jmrich/opt/gatk-4.6.0.0/gatk"
@@ -180,6 +180,7 @@ if not os.path.exists(cosmic_mutations_path):
         out=reference_out_dir_cosmic,
         mutation_class="cancer",
         download_cosmic=True,
+        gget_mutate=True,
     )
 
 with open(cosmic_mutations_path) as f:
