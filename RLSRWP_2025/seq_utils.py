@@ -6,6 +6,9 @@ import networkx as nx
 
 import numpy as np
 import pandas as pd
+import anndata as ad
+from tqdm import tqdm
+import re
 import scanpy as sc
 from sklearn.metrics import euclidean_distances
 from sklearn.neighbors import NearestNeighbors
@@ -491,3 +494,105 @@ def perform_analysis(vcf_file, unique_mcrs_df_path, cosmic_df, plot_output_folde
 
     unique_mcrs_df.rename(columns={'TP': f'TP_{package_name}', 'FP': f'FP_{package_name}', 'TN': f'TN_{package_name}', 'FN': f'FN_{package_name}', 'mutation_expression_prediction_error': f'mutation_expression_prediction_error_{package_name}'}, inplace=True)
     unique_mcrs_df.to_csv(unique_mcrs_df_path_out, index=False)
+
+
+def make_transcript_df_from_gtf(gtf):
+    if gtf is None:
+        raise ValueError("gtf must be provided if variant_position_annotations is not 'cdna' or strand_bias_end is '3p'")
+    if isinstance(gtf, str):
+        gtf_cols = ["chromosome", "source", "feature", "start", "end", "score", "strand", "frame", "attributes"]
+        gtf_df = pd.read_csv(gtf, sep="\t", comment="#", names=gtf_cols)
+    elif isinstance(gtf, pd.DataFrame):
+        gtf_df = gtf.copy()
+    else:
+        raise ValueError("gtf must be a path to a GTF file or a pandas DataFrame")
+    gtf_df["region_length"] = gtf_df["end"] - gtf_df["start"] + 1  # this corresponds to the unspliced transcript length, NOT the spliced transcript/CDS length (which is what I care about)
+    gtf_df["transcript_ID"] = gtf_df["attributes"].str.extract(r'transcript_id "([^"]+)"')
+    transcript_df = gtf_df[gtf_df["feature"] == "transcript"].copy()
+    transcript_df = transcript_df.drop_duplicates(subset="transcript_ID", keep="first")
+
+    five_prime_lengths = []
+    three_prime_lengths = []
+    transcript_lengths = []
+    for transcript_id in transcript_df["transcript_ID"]:
+        specific_transcript_df = gtf_df.loc[gtf_df["transcript_ID"] == transcript_id].copy()
+        five_sum = specific_transcript_df[(specific_transcript_df["feature"] == "five_prime_utr")]["region_length"].sum()
+        three_sum = specific_transcript_df[(specific_transcript_df["feature"] == "three_prime_utr")]["region_length"].sum()
+        exon_sum = specific_transcript_df[(specific_transcript_df["feature"] == "exon")]["region_length"].sum()
+        transcript_length = five_sum + three_sum + exon_sum
+
+        five_prime_lengths.append(five_sum)
+        three_prime_lengths.append(three_sum)
+        transcript_lengths.append(transcript_length)
+    transcript_df["five_prime_length"] = five_prime_lengths
+    transcript_df["three_prime_length"] = three_prime_lengths
+    transcript_df["transcript_length"] = transcript_lengths
+
+    transcript_df["utr_length_preceding_transcript"] = transcript_df.apply(
+        lambda row: row["three_prime_utr_length"] if row["strand"] == "-" else row["five_prime_utr_length"],
+        axis=1
+    )
+
+    return gtf_df, transcript_df
+
+
+def convert_vcf_samples_to_anndata(vcf_path, adata_out=None, sample_titles_set=None):
+    from cyvcf2 import VCF
+
+    vcf = VCF(vcf_path)
+
+    sample_names = vcf.samples
+    n_samples = len(sample_names)
+
+    if sample_titles_set:
+        sample_indices_to_keep_set = {i for i, name in enumerate(sample_names) if name in sample_titles_set}
+    else:
+        sample_indices_to_keep_set = set(range(n_samples))
+
+    # Store sparse matrix data
+    data = []
+    rows = []
+    cols = []
+    variant_ids = []
+    has_id = []
+
+    for var_idx, variant in tqdm(enumerate(vcf), desc="Processing VCF", unit="variants", total=39728178):
+        genotypes = variant.genotypes  # List of [GT1, GT2, phased, ...]
+        if not genotypes or len(genotypes) != n_samples:
+            continue  # Skip malformed rows
+
+        sample_idx_for_row = 0
+        for sample_idx, gt in enumerate(genotypes):
+            if sample_idx not in sample_indices_to_keep_set:
+                continue
+            sample_idx_for_row += 1
+            
+            if gt[0] == -1 or gt[1] == -1:
+                continue  # missing
+            
+            gt_sum = gt[0] + gt[1]
+            rows.append(sample_idx)
+            cols.append(var_idx)
+            data.append(gt_sum)
+
+        if variant.ID:
+            variant_ids.append(variant.ID)
+            has_id.append(True)
+        else:
+            variant_ids.append(f"temp_{var_idx}")
+            has_id.append(False)
+
+    # Create sparse matrix (samples x variants)
+    X = sp.csr_matrix((data, (rows, cols)), shape=(n_samples, len(variant_ids)))
+
+    # Build obs and var
+    obs = pd.DataFrame(index=sample_names)
+    var = pd.DataFrame(index=variant_ids)
+    var["has_id"] = has_id
+
+    # Create AnnData
+    adata = ad.AnnData(X=X, obs=obs, var=var)
+    if adata_out is None:
+        adata_out = re.sub(r'\.vcf(?:\.gz)?$', '.h5ad', vcf_path)
+    adata.write_h5ad(adata_out)
+    return adata

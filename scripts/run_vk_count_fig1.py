@@ -3,7 +3,14 @@ import subprocess
 import sys
 import varseek as vk
 
-# more on the dataset: https://www.10xgenomics.com/datasets/melanoma-tumor-derived-cells-v-2-2-standard-4-0-0
+# more on the dataset: 
+#   PRJNA330719 (289.54GB for .sra files, 2.3T for .fastq files): https://www.ncbi.nlm.nih.gov/Traces/study/?query_key=4&WebEnv=MCID_67eecb767ec86104c28549e7&o=acc_s%3Aa  # find the GEO here: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE84465
+#   PRJNA603103, PRJNA603104: https://www.ncbi.nlm.nih.gov/Traces/study/?acc=PRJNA603101&f=librarysource_s%3An%3Atranscriptomic%3Borganism_s%3An%3Ahomo%2520sapiens%3Bsource_name_sam_ss%3An%3Askin%3Ac%3Binstrument_s%3An&o=instrument_s%3Ad  # find the GEO here: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE144240
+project_name_to_sra_link_dict = {
+    "PRJNA330719": "https://www.ncbi.nlm.nih.gov/Traces/study/?query_key=4&WebEnv=MCID_67eecb767ec86104c28549e7&o=acc_s%3Aa",
+    "PRJNA603103": "https://www.ncbi.nlm.nih.gov/Traces/study/?acc=PRJNA603101&f=librarysource_s%3An%3Atranscriptomic%3Borganism_s%3An%3Ahomo%2520sapiens%3Bsource_name_sam_ss%3An%3Askin%3Bbioproject_s%3An%3Aprjna603103%3Ac&o=instrument_s%3Ad%3Bacc_s%3Aa",
+    "PRJNA603104": "https://www.ncbi.nlm.nih.gov/Traces/study/?acc=PRJNA603101&f=librarysource_s%3An%3Atranscriptomic%3Borganism_s%3An%3Ahomo%2520sapiens%3Bsource_name_sam_ss%3An%3Askin%3Bbioproject_s%3An%3Aprjna603104%3Ac&o=instrument_s%3Ad%3Bacc_s%3Aa"
+}
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 data_dir = os.path.join(os.path.dirname(script_dir), "data")
@@ -11,8 +18,10 @@ vk_count_out_dir = os.path.join(data_dir, "vk_count_out_fig1")
 kb_count_reference_genome_dir = os.path.join(data_dir, "vk_count_out_reference_genome_fig1")
 reference_out_dir = os.path.join(data_dir, "reference")
 
-SRR_Acc_List_path = os.path.join(data_dir, "SRA", "PRJNA330719", "SRR_Acc_List.txt")  # find the raw data here: https://www.ncbi.nlm.nih.gov/Traces/study/?query_key=4&WebEnv=MCID_67eecb767ec86104c28549e7&o=acc_s%3Aa  # find the GEO here: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE84465
+project_name = "PRJNA330719"  # "PRJNA330719", "PRJNA603103", "PRJNA603104"
+SRR_Acc_List_path = os.path.join(data_dir, "SRA", project_name, "SRR_Acc_List.txt")  # find the raw data here: 
 download_only = False
+overwrite_vk_count = False
 
 # reference parameters
 vk_ref_out = os.path.join(data_dir, "vk_ref_out")
@@ -23,8 +32,8 @@ k=51
 dlist_reference_source = "t2t"
 
 # general vk count parameters
-fastqs_dir = os.path.join(data_dir, "glioblastoma_smartseq_fastq_data")
-technology = "SMARTSEQ2"
+fastqs_dir = os.path.join(data_dir, "glioblastoma_smartseq_fastq_data")  # for PRJNA330719; change for each run
+technology = "BULK"  # bulk is used for non-multiplexed SMARTSEQ2
 parity = "paired"
 threads = 16
 
@@ -48,6 +57,7 @@ variants = None if not qc_against_gene_matrix else os.path.join(reference_out_di
 seq_id_column = "seq_ID"
 var_column = "mutation_cdna"
 gene_id_column = "gene_name"
+variants_usecols = None  # all columns
 
 # for making VCF
 vcf_data_csv=os.path.join(reference_out_dir, "cosmic", "CancerMutationCensus_AllData_Tsv_v101_GRCh37", "CancerMutationCensus_AllData_v101_GRCh37_vcf_data.csv")
@@ -60,11 +70,11 @@ sequences="cdna"
 # check for fastqs
 if not os.path.isdir(fastqs_dir) or len(os.listdir(fastqs_dir)) == 0:
     if not os.path.isfile(SRR_Acc_List_path):
-        raise ValueError(f"Must have {SRR_Acc_List_path} downloaded to run this script. Download the accession numbers list file from this link: https://www.ncbi.nlm.nih.gov/Traces/study/?query_key=4&WebEnv=MCID_67eecb767ec86104c28549e7&o=acc_s%3Aa")
+        raise ValueError(f"Must have {SRR_Acc_List_path} downloaded to run this script. Download the accession numbers list file from this link: {project_name_to_sra_link_dict[project_name]}")
     with open(SRR_Acc_List_path) as f:
         srr_list = f.read().split()
     try:
-        print("Downloading fastq files (289.54GB for .sra files, 2.3T for .fastq files)")
+        print("Downloading fastq files")
         data_download_command = ["fasterq-dump", "--outdir", fastqs_dir, "--threads", str(threads), "--progress", "--split-files"] + srr_list
         subprocess.run(data_download_command, check=True)
         # print(" ".join(data_download_command))
@@ -72,6 +82,8 @@ if not os.path.isdir(fastqs_dir) or len(os.listdir(fastqs_dir)) == 0:
     except Exception as e:
         print(f"Error running fasterq-dump: {e}")
         raise  # re-raises the original exception
+else:
+    print(f"Fastq data already exists in {fastqs_dir}. If you want to re-download, please delete the directory first.")
 
 if download_only:
     print("download_only=True. Exiting script.")
@@ -93,26 +105,29 @@ if qc_against_gene_matrix and (not os.path.exists(reference_genome_index) or not
 if save_vcf and not os.path.exists(vcf_data_csv):  # alternatively, I can do this in vk clean by passing in vcf_data_csv=vcf_data_csv, cosmic_tsv=cosmic_tsv, cosmic_reference_genome_fasta=cosmic_reference_genome_fasta, variants="cosmic_cmc", sequences="cdna", cosmic_version=101
     vk.utils.add_vcf_info_to_cosmic_tsv(cosmic_tsv=cosmic_tsv, reference_genome_fasta=cosmic_reference_genome_fasta, cosmic_df_out=vcf_data_csv, sequences=sequences, cosmic_version=101)
 
-vk_count_output_dict = vk.count(
-    fastqs_dir,
-    index=vcrs_index,
-    t2g=vcrs_t2g,
-    technology=technology,
-    k=k,
-    quality_control_fastqs=quality_control_fastqs,
-    cut_front=cut_front,
-    cut_tail=cut_tail,
-    reference_genome_index=reference_genome_index,
-    reference_genome_t2g=reference_genome_t2g,
-    kb_count_reference_genome_out_dir=kb_count_reference_genome_dir,
-    qc_against_gene_matrix=qc_against_gene_matrix,
-    parity=parity,
-    out=vk_count_out_dir,
-    threads=threads,
-    save_vcf=save_vcf,
-    vcf_data_csv=vcf_data_csv,
-    variants=variants,
-    seq_id_column=seq_id_column,
-    var_column=var_column,
-    gene_id_column=gene_id_column,
-)
+adata_cleaned_out = os.path.join(vk_count_out_dir, "adata_cleaned.h5ad")
+if not os.path.exists(adata_cleaned_out) or overwrite_vk_count:
+    vk_count_output_dict = vk.count(
+        fastqs_dir,
+        index=vcrs_index,
+        t2g=vcrs_t2g,
+        technology=technology,
+        k=k,
+        quality_control_fastqs=quality_control_fastqs,
+        cut_front=cut_front,
+        cut_tail=cut_tail,
+        reference_genome_index=reference_genome_index,
+        reference_genome_t2g=reference_genome_t2g,
+        kb_count_reference_genome_out_dir=kb_count_reference_genome_dir,
+        qc_against_gene_matrix=qc_against_gene_matrix,
+        parity=parity,
+        out=vk_count_out_dir,
+        threads=threads,
+        save_vcf=save_vcf,
+        vcf_data_csv=vcf_data_csv,
+        variants=variants,
+        seq_id_column=seq_id_column,
+        var_column=var_column,
+        gene_id_column=gene_id_column,
+        variants_usecols=variants_usecols
+    )

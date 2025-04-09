@@ -45,6 +45,7 @@ variants = None if not qc_against_gene_matrix else os.path.join(reference_out_di
 seq_id_column = "seq_ID"
 var_column = "mutation_cdna"
 gene_id_column = "gene_name"
+variants_usecols = None  # all columns
 
 # for making VCF
 vcf_data_csv=os.path.join(reference_out_dir, "cosmic", "CancerMutationCensus_AllData_Tsv_v101_GRCh37", "CancerMutationCensus_AllData_v101_GRCh37_vcf_data.csv")
@@ -98,4 +99,5 @@ vk_count_output_dict = vk.count(
     seq_id_column=seq_id_column,
     var_column=var_column,
     gene_id_column=gene_id_column,
+    variants_usecols=variants_usecols
 )

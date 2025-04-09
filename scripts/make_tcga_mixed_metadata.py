@@ -9,7 +9,7 @@ import requests
 random.seed(42)
 
 # Define parameters
-base_data_folder = "/home/jrich/data/varseek_data/sequencing/bulk/tcga"
+base_data_folder = ""
 trial = False
 number_of_samples_per_combination = 10
 cohort_metadata_file = os.path.join(base_data_folder, "cohort_metadata.tsv")

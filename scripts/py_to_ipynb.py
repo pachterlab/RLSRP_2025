@@ -3,8 +3,8 @@ import argparse
 import nbformat as nbf
 
 # Path to your script
-python_in_path = '/home/jrich/Desktop/varseek/notebooks/test_module.py'
-notebook_out_path = '/home/jrich/Desktop/varseek/notebooks/test_module.ipynb'
+python_in_path = ''
+notebook_out_path = ''
 comment_marker_deliniator = '# CELL'
 
 def module_to_notebook(python_in_path, notebook_out_path, comment_marker_deliniator):

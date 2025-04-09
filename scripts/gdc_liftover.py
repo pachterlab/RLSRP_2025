@@ -97,7 +97,8 @@ def convert_gdc_to_37(df, output_path = None):
         print(f"Updated DataFrame saved to {output_path}")
 
 if __name__ == "__main__":
-    file_path = '/home/jrich/Desktop/CART_prostate_sc/data/reference/GDC/frequent-mutations.2024-05-15-3.tsv'
+    file_path = ''
+    output_path = ''
     df = pd.read_csv(file_path, sep='\t')
     
-    convert_gdc_to_37(df, output_path = '/home/jrich/Desktop/CART_prostate_sc/data/reference/GDC/frequent-mutations_with_GRCh37.2024-05-15-3.tsv')
+    convert_gdc_to_37(df, output_path = output_path)

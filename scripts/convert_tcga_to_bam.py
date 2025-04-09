@@ -3,8 +3,8 @@ import subprocess
 
 import pysam
 
-samtools = "/home/jrich/miniconda3/envs/kvar/bin/samtools"
-input_bam_list = ['/home/jrich/data/varseek_data/trash/gatk_nov17/alignment/merged.bam']
+samtools = "samtools"  # path to samtools if needed
+input_bam_list = ['test.bam']
 threads = 8
 
 for input_bam in input_bam_list:

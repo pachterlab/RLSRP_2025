@@ -5,7 +5,7 @@ import os
 import requests
 
 experimental_strategy = "RNA-Seq"  # RNA-Seq, WGS, WXS
-base_data_folder = "/home/jrich/data/varseek_data/sequencing/bulk/tcga"
+base_data_folder = ""
 
 
 matched_tumor_normal_metadata_file = os.path.join(base_data_folder, f"matched_tumor_normal_metadata_{experimental_strategy}.tsv")

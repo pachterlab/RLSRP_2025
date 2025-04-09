@@ -8,23 +8,22 @@ import varseek as vk
     # CCLE:
         # sequencing data (ENA): https://www.ebi.ac.uk/ena/browser/view/PRJNA523380
         # paper: https://www.nature.com/articles/s41586-019-1186-3
-    # Geuvadis: 
-        # sequencing data (ENA): https://www.ebi.ac.uk/ena/browser/view/PRJEB3366
-        # paper: https://www.nature.com/articles/nature12531
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 data_dir = os.path.join(os.path.dirname(script_dir), "data")
 reference_out_dir = os.path.join(data_dir, "reference")
 
 # Sequencing database parameters
-sequencing_data_base = "geuvadis"  # "ccle" (Fig3) or "geuvadis" (Fig4) - ccle is ~11TB, geuvadis is ~2.3TB
+sequencing_data_base = "ccle"  # ~11TB
 data_to_use = "rnaseq"  # only used when sequencing_data_base == "ccle"  # options: "rnaseq", "wxs", "wxs_with_corresponding_rnaseq_sample", "rnaseq_and_wxs", "wxs_and_rnaseq"
 number_of_threads_total = 32  # if too high (e.g., 64), then will not be able to download successfully (server error) - 8 seems like the sweet spot
 number_of_threads_per_varseek_count_task = 32
 max_retries = 5
 download_only = False
 delete_fastq_files = False
+overwrite_vk_count = False
 sequencing_data_out_base = os.path.join(data_dir, f"{sequencing_data_base}_data_base")
+experiment_aliases_to_keep = os.path.join(data_dir, f"{sequencing_data_base}_filtered_experiment_aliases.txt")  # None to use all
 
 # reference parameters
 vk_ref_out = os.path.join(data_dir, "vk_ref_out")
@@ -54,6 +53,8 @@ variants = None if not qc_against_gene_matrix else os.path.join(reference_out_di
 seq_id_column = "seq_ID"
 var_column = "mutation_cdna"
 gene_id_column = "gene_name"
+variants_usecols = [seq_id_column, var_column, gene_id_column]
+add_hgvs_breakdown_to_adata_var = False
 
 # for making VCF
 vcf_data_csv=os.path.join(reference_out_dir, "cosmic", "CancerMutationCensus_AllData_Tsv_v101_GRCh37", "CancerMutationCensus_AllData_v101_GRCh37_vcf_data.csv")
@@ -83,10 +84,15 @@ if sequencing_data_base == "ccle":
     ena_project = ccle_ena_project
 elif sequencing_data_base == "geuvadis":
     ena_project = geuvadis_ena_project
+    experiment_aliases_to_keep = None
 else:
     raise ValueError("ccle or geuvadis")
 
 json_url = f"https://www.ebi.ac.uk/ena/portal/api/filereport?accession={ena_project}&result=read_run&fields=study_accession,sample_accession,experiment_accession,run_accession,scientific_name,library_strategy,experiment_title,experiment_alias,fastq_bytes,fastq_ftp,sra_ftp,sample_title&format=json&download=true&limit=0"
+
+if experiment_aliases_to_keep is not None:
+    with open(experiment_aliases_to_keep, 'r', encoding="utf-8") as file:
+        experiment_aliases_to_keep = {line.strip() for line in file.readlines()}
 
 # metadata json
 os.makedirs(sequencing_data_out_base, exist_ok=True)
@@ -159,6 +165,10 @@ def download_sequencing_total(
     experiment_alias_underscores_only = experiment_alias.replace("-", "_")
     sample = experiment_alias_underscores_only  # f"{experiment_alias_underscores_only}___{sample_accession}___{experiment_accession}___{run_accession}"
 
+    if experiment_aliases_to_keep is not None and sample not in experiment_aliases_to_keep:
+        # print(f"Skipping {sample} as it is not in the list of experiment aliases to keep.")
+        return
+
     fastq_ftp = record.get('fastq_ftp')
     fastq_links = fastq_ftp.split(';')
 
@@ -209,32 +219,41 @@ def download_sequencing_total(
 
     if download_only:
         return
+       
+    vcrs_metadata_df = os.path.join(sample_out_folder, "vcrs_metadata_df.csv")
+    if os.path.isfile(vcrs_metadata_df):
+        variants = None
     
-    print(f"Running vk.count on {sample}")
     vk_count_out_dir = os.path.join(sample_out_folder, "vk_count_out")
-    vk_count_output_dict = vk.count(
-        sample_out_folder,
-        index=vcrs_index,
-        t2g=vcrs_t2g,
-        technology="bulk",
-        k=k,
-        quality_control_fastqs=quality_control_fastqs,
-        cut_front=cut_front,
-        cut_tail=cut_tail,
-        reference_genome_index=reference_genome_index,
-        reference_genome_t2g=reference_genome_t2g,
-        qc_against_gene_matrix=qc_against_gene_matrix,
-        out=vk_count_out_dir,
-        threads=number_of_threads_per_varseek_count_task,
-        save_vcf=save_vcf,
-        vcf_data_csv=vcf_data_csv,
-        variants=variants,
-        seq_id_column=seq_id_column,
-        var_column=var_column,
-        gene_id_column=gene_id_column,
-    )
+    adata_cleaned_out = os.path.join(vk_count_out_dir, "adata_cleaned.h5ad")
+    if not os.path.exists(adata_cleaned_out) or overwrite_vk_count:
+        print(f"Running vk.count on {sample}") 
+        vk_count_output_dict = vk.count(
+            sample_out_folder,
+            index=vcrs_index,
+            t2g=vcrs_t2g,
+            technology="bulk",
+            k=k,
+            quality_control_fastqs=quality_control_fastqs,
+            cut_front=cut_front,
+            cut_tail=cut_tail,
+            reference_genome_index=reference_genome_index,
+            reference_genome_t2g=reference_genome_t2g,
+            qc_against_gene_matrix=qc_against_gene_matrix,
+            out=vk_count_out_dir,
+            threads=number_of_threads_per_varseek_count_task,
+            save_vcf=save_vcf,
+            vcf_data_csv=vcf_data_csv,
+            variants=variants,
+            seq_id_column=seq_id_column,
+            var_column=var_column,
+            gene_id_column=gene_id_column,
+            variants_usecols=variants_usecols,
+            add_hgvs_breakdown_to_adata_var=add_hgvs_breakdown_to_adata_var,
+            vcrs_metadata_df=vcrs_metadata_df
+        )
 
-    print(f"Finished vk.count on {sample}")
+        print(f"Finished vk.count on {sample}")
 
     if delete_fastq_files:
         for fastq_file in fastq_files:
