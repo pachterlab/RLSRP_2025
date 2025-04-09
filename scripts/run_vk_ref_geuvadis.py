@@ -6,7 +6,7 @@ import anndata as ad
 import pandas as pd
 import json
 import varseek as vk
-from varseek.utils import is_program_installed, vcf_to_dataframe, assign_transcript_and_cds, add_variant_type, reverse_complement, write_to_vcf
+from varseek.utils import is_program_installed, vcf_to_dataframe, assign_transcript_and_cds, add_variant_type, reverse_complement, write_to_vcf, add_variant_type_column_to_vcf_derived_df, add_variant_column_to_vcf_derived_df
 from varseek.constants import mutation_pattern
 from RLSRWP_2025.utils import make_transcript_df_from_gtf, convert_vcf_samples_to_anndata
 
@@ -117,6 +117,7 @@ if not os.path.exists(variants):  # transcriptome variants don't exist
         try:
             url = f"https://rest.ensembl.org/vep/human/id/{dbsnp_id}?hgvs=1"
             response = requests.get(url, headers=headers)
+            hgvsc = None
             for entry in response.json():
                 for tx in entry.get("transcript_consequences", []):
                     if "hgvsc" in tx:
@@ -129,18 +130,45 @@ if not os.path.exists(variants):  # transcriptome variants don't exist
             ids_not_correctly_recorded.add(dbsnp_id)  # both cases where there was no dbsnp ID at all, as well as any other causes of failure
             continue
     if ids_not_correctly_recorded:
-        variants_plink_df.rename(columns={"CHROM": "chromosome", "POS": "start_variant_position_genome"}, inplace=True)
-        mask = variants_plink_df['ID'].isin(ids_not_correctly_recorded)
-        variants_plink_df.loc[mask, 'end_variant_position_genome'] = variants_plink_df.loc[mask, 'start_variant_position_genome'] + variants_plink_df.loc[mask, 'ALT'].str.len() - 1
-        variants_plink_df.loc[mask, :] = variants_plink_df.loc[mask, :].apply(lambda row: assign_transcript_and_cds(row, transcript_df, gtf_df), axis=1)
-        variants_plink_df.rename(columns={"chromosome": "CHROM", "start_variant_position_genome": "POS"}, inplace=True)
+        variants_plink_df_subset = variants_plink_df.loc[variants_plink_df['ID'].isin(ids_not_correctly_recorded), ["CHROM", "POS", "ID", "REF", "ALT"]].copy()
+        variants_plink_df_subset.rename(columns={"CHROM": "chromosome", "POS": "start_variant_position_genome"}, inplace=True)
+        variants_plink_df_subset['end_variant_position_genome'] = variants_plink_df_subset['start_variant_position_genome'] + variants_plink_df_subset['ALT'].str.len() - 1
+        variants_plink_df_subset = variants_plink_df_subset.apply(lambda row: assign_transcript_and_cds(row, transcript_df, gtf_df), axis=1)  # adds columns ["transcript_ID", "start_variant_position", "end_variant_position"]
+        variants_plink_df_subset.rename(columns={"chromosome": "CHROM", "start_variant_position_genome": "POS"}, inplace=True)
+        
+        # drop rows that didn't map to a gene
+        variants_plink_df_subset = variants_plink_df_subset[variants_plink_df_subset["transcript_ID"] != "unknown"]
+        
+        # make HGVSC from this
+        if len(variants_plink_df_subset) > 0:
+            variants_plink_df_subset = variants_plink_df_subset.merge(
+                transcript_df[["transcript_ID", "strand"]],
+                on="transcript_ID",
+                how="left"
+            ).reset_index(drop=True)
             
+            # ensure REF and ALT reflect what is going on on the cDNA
+            variants_plink_df_subset["ref_original"] = variants_plink_df_subset["REF"]  # just as a copy, in case I want it later
+            variants_plink_df_subset["alt_original"] = variants_plink_df_subset["ALT"]  # just as a copy, in case I want it later
+            variants_plink_df_subset.loc[variants_plink_df_subset["strand"] == "-", "REF"] = variants_plink_df_subset.loc[variants_plink_df_subset["strand"] == "-", "REF"].apply(reverse_complement)
+            variants_plink_df_subset.loc[variants_plink_df_subset["strand"] == "-", "ALT"] = variants_plink_df_subset.loc[variants_plink_df_subset["strand"] == "-", "ALT"].apply(reverse_complement)
+            
+            # create HGVSC info
+            add_variant_type_column_to_vcf_derived_df(variants_plink_df_subset)
+            add_variant_column_to_vcf_derived_df(variants_plink_df_subset, var_column="variant")
+            variants_plink_df_subset['variant'] = variants_plink_df_subset['variant'].str.replace(r'^g\.', 'c.', regex=True)
+            variants_plink_df_subset["variant_header"] = variants_plink_df_subset["transcript_ID"] + ":" + variants_plink_df_subset["variant"]
+            variants_plink_df_subset = variants_plink_df_subset.dropna(subset=["variant_header"])
+            variants_plink_df_subset = variants_plink_df_subset.rename(columns={"ID": "dbsnp_id"})
     # del variants_plink_df
 
     hgvs_df = pd.DataFrame(
         [(v, k) for k, v in hgvsc_to_dbsnp_dict.items()],
         columns=['dbsnp_id', 'variant_header']
     )
+    if len(variants_plink_df_subset) > 0:
+        hgvs_df = pd.concat([hgvs_df, variants_plink_df_subset], ignore_index=True)  # add the ones not correctly recorded
+    del variants_plink_df_subset
 
     hgvs_df = hgvs_df.drop_duplicates(subset=['dbsnp_id'])  # optional - just if I don't want multiple transcripts per genomic mutation
     hgvs_df[["transcript_ID", "variant"]] = hgvs_df["variant_header"].str.split(":", expand=True)
@@ -191,8 +219,8 @@ if not os.path.exists(variants):  # transcriptome variants don't exist
     ).reset_index(drop=True)
 
     # make ALT_CDNA_PLINK which is reverse-complement of ALT for - strand and equal to ALT for + strand
+    variants_plink_df["ALT_CDNA_PLINK"] = variants_plink_df["ALT"]
     variants_plink_df.loc[variants_plink_df["strand"] == "-", "ALT_CDNA_PLINK"] = variants_plink_df.loc[variants_plink_df["strand"] == "-", "ALT"].apply(reverse_complement)
-    variants_plink_df.loc[variants_plink_df["strand"] == "+", "ALT_CDNA_PLINK"] = variants_plink_df.loc[variants_plink_df["strand"] == "+", "ALT"]
 
     # make variant_type_true based actual_variant
     add_variant_type(variants_plink_df, var_column="actual_variant")
