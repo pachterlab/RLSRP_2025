@@ -51,6 +51,7 @@ reference_genome_gtf = os.path.join(reference_out_dir, "ensembl_grch37_release93
 # clean
 qc_against_gene_matrix = True
 save_vcf = True
+vcf_out = os.path.join(vk_count_out_dir, "variants.vcf")
 
 # for qc_against_gene_matrix - same as from vk ref/build (not essential but speeds things up)
 variants = None if not qc_against_gene_matrix else os.path.join(reference_out_dir, "cosmic", "CancerMutationCensus_AllData_Tsv_v101_GRCh37", "CancerMutationCensus_AllData_v101_GRCh37_mutation_workflow.csv")
@@ -67,6 +68,14 @@ sequences="cdna"
 
 # summarize
 
+# maf
+maf_out = os.path.join(vk_count_out_dir, "variants.maf")
+vcf2maf_pl = "vcf2maf.pl"
+genome_reference_fasta = os.path.join(data_dir, "reference", "ensembl_grch37_release93", "Homo_sapiens.GRCh37.dna.primary_assembly.fa")
+vep_data = os.path.expanduser("~/.vep")
+conda_path = os.path.expanduser("~/miniconda3")
+conda_environment = "vep93"
+
 # check for fastqs
 if not os.path.isdir(fastqs_dir) or len(os.listdir(fastqs_dir)) == 0:
     if not os.path.isfile(SRR_Acc_List_path):
@@ -74,8 +83,12 @@ if not os.path.isdir(fastqs_dir) or len(os.listdir(fastqs_dir)) == 0:
     with open(SRR_Acc_List_path) as f:
         srr_list = f.read().split()
     try:
-        print("Downloading fastq files")
-        data_download_command = ["fasterq-dump", "--outdir", fastqs_dir, "--threads", str(threads), "--progress", "--split-files"] + srr_list
+        print("Downloading fastq files (289.54GB for .sra files, 2.3T for .fastq files)")
+        print("Running prefetch")
+        prefetch_command = ["prefetch", "--progress", "--verbose"] + srr_list
+        subprocess.run(prefetch_command, check=True)
+        print("Downloading files")
+        data_download_command = ["fasterq-dump", "--outdir", fastqs_dir, "--threads", str(threads), "--progress", "--verbose", "--split-files"] + srr_list
         subprocess.run(data_download_command, check=True)
         # print(" ".join(data_download_command))
         print(f"Fastq data downloaded successfully to {fastqs_dir}")
@@ -124,6 +137,7 @@ if not os.path.exists(adata_cleaned_out) or overwrite_vk_count:
         out=vk_count_out_dir,
         threads=threads,
         save_vcf=save_vcf,
+        vcf_out=vcf_out,
         vcf_data_csv=vcf_data_csv,
         variants=variants,
         seq_id_column=seq_id_column,
@@ -131,3 +145,11 @@ if not os.path.exists(adata_cleaned_out) or overwrite_vk_count:
         gene_id_column=gene_id_column,
         variants_usecols=variants_usecols
     )
+
+if save_vcf and maf_out is not None:
+    if not os.path.exists(vcf2maf_pl) or not os.path.exists(f"{conda_path}/envs/{conda_environment}"):
+        print(f"Please set up the vcf2maf command with scripts/vcf2maf_setup.sh")
+        sys.exit()
+    vcf2maf_command = ["conda", "run", "-n", conda_environment, "perl", vcf2maf_pl, "--input-vcf", vcf_out, "--output-maf", maf_out, "--ref-fasta", genome_reference_fasta, "--vep-path", f"{conda_path}/envs/{conda_environment}/bin", "--vep-data", vep_data, "--species", "homo_sapiens", "--ncbi-build", "GRCh37", "--cache-version", "93", "--retain-info", "AO,NS"]
+    subprocess.run(vcf2maf_command, check=True)
+    
