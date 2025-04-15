@@ -15,6 +15,8 @@ reference_out_dir = os.path.join(data_dir, "reference")
 
 # Sequencing database parameters
 sequencing_data_base = "geuvadis"  # ~2.3TB
+technology = "bulk"
+parity = "paired"
 number_of_threads_total = 32  # if too high (e.g., 64), then will not be able to download successfully (server error) - 8 seems like the sweet spot
 number_of_threads_per_varseek_count_task = 32
 max_retries = 5
@@ -58,11 +60,19 @@ qc_against_gene_matrix = True
 save_vcf = False
 
 # for qc_against_gene_matrix - same as from vk ref/build (not essential but speeds things up)
+variants = None if not qc_against_gene_matrix else os.path.join(reference_out_dir, "cosmic", "CancerMutationCensus_AllData_Tsv_v101_GRCh37", "CancerMutationCensus_AllData_v101_GRCh37_mutation_workflow.csv")
 seq_id_column = "seq_ID"
 var_column = "mutation_cdna"
 gene_id_column = "gene_name"
 variants_usecols = [seq_id_column, var_column, gene_id_column]
 add_hgvs_breakdown_to_adata_var = False
+vcrs_metadata_df = os.path.join(reference_out_dir, "cosmic", "vcrs_metadata_df.csv")  # if it doesn't exist then it's fine
+
+# for making VCF
+vcf_data_csv=os.path.join(reference_out_dir, "cosmic", "CancerMutationCensus_AllData_Tsv_v101_GRCh37", "CancerMutationCensus_AllData_v101_GRCh37_vcf_data.csv")
+cosmic_tsv=os.path.join(reference_out_dir, "cosmic", "CancerMutationCensus_AllData_Tsv_v101_GRCh37", "CancerMutationCensus_AllData_v101_GRCh37.tsv")
+cosmic_reference_genome_fasta=os.path.join(reference_out_dir, "ensembl_grch37_release93", "Homo_sapiens.GRCh37.dna.primary_assembly.fa")
+sequences="cdna"
 
 # summarize
 
@@ -134,6 +144,8 @@ def download_sequencing_total(
     record,
     vcrs_index,
     vcrs_t2g,
+    technology="bulk",
+    parity="paired",
     sequencing_data_out_base = ".",
     max_retries = 5,
     k=59,
@@ -145,6 +157,13 @@ def download_sequencing_total(
     qc_against_gene_matrix=False,
     save_vcf=False,
     vcf_data_csv=None,
+    variants=None,
+    seq_id_column=None,
+    var_column=None,
+    gene_id_column=None,
+    variants_usecols=None,
+    add_hgvs_breakdown_to_adata_var=None,
+    vcrs_metadata_df=None,
     number_of_threads_per_varseek_count_task=2,
 ):
     experiment_alias = record.get('experiment_alias')
@@ -205,8 +224,7 @@ def download_sequencing_total(
 
     if download_only:
         return
-       
-    vcrs_metadata_df = os.path.join(sample_out_folder, "vcrs_metadata_df.csv")
+    
     if os.path.isfile(vcrs_metadata_df):
         variants = None
     
@@ -218,7 +236,8 @@ def download_sequencing_total(
             sample_out_folder,
             index=vcrs_index,
             t2g=vcrs_t2g,
-            technology="bulk",
+            technology=technology,
+            parity=parity,
             k=k,
             quality_control_fastqs=quality_control_fastqs,
             cut_front=cut_front,
@@ -245,9 +264,6 @@ def download_sequencing_total(
         for fastq_file in fastq_files:
             os.remove(fastq_file)
 
-    import sys  #!!! erase
-    sys.exit()  #!!! erase
-
 
 number_of_tasks = number_of_threads_total / number_of_threads_per_varseek_count_task
 with concurrent.futures.ThreadPoolExecutor(max_workers=number_of_tasks) as executor:
@@ -257,6 +273,8 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=number_of_tasks) as execu
             record=record,
             vcrs_index=vcrs_index,
             vcrs_t2g=vcrs_t2g,
+            technology=technology,
+            parity=parity,
             sequencing_data_out_base=sequencing_data_out_base,
             max_retries=max_retries,
             k=k,
@@ -268,6 +286,13 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=number_of_tasks) as execu
             qc_against_gene_matrix=qc_against_gene_matrix,
             save_vcf=save_vcf,
             vcf_data_csv=vcf_data_csv,
+            variants=variants,
+            seq_id_column=seq_id_column,
+            var_column=var_column,
+            gene_id_column=gene_id_column,
+            variants_usecols=variants_usecols,
+            add_hgvs_breakdown_to_adata_var=add_hgvs_breakdown_to_adata_var,
+            vcrs_metadata_df=vcrs_metadata_df,
             number_of_threads_per_varseek_count_task=number_of_threads_per_varseek_count_task,
         )
         for record in data_list_to_run

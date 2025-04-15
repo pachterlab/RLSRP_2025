@@ -432,7 +432,10 @@ def perform_analysis(vcf_file, unique_mcrs_df_path, cosmic_df, plot_output_folde
 
     # load in unique_mcrs_df
     unique_mcrs_df = pd.read_csv(unique_mcrs_df_path)
-    unique_mcrs_df["header_list"] = unique_mcrs_df["header_list"].apply(safe_literal_eval)
+    if "header_list" in unique_mcrs_df.columns:
+        unique_mcrs_df["header_list"] = unique_mcrs_df["header_list"].apply(safe_literal_eval)
+    else:
+        unique_mcrs_df["header_list"] = unique_mcrs_df["vcrs_header"].str.split(";")
 
     tool_cosmic_merged_df = merge_gatk_and_cosmic(df_tool, cosmic_df, exact_position=False)  # change exact_position to True to merge based on exact position as before
     id_set_tool = set(tool_cosmic_merged_df['ID'])

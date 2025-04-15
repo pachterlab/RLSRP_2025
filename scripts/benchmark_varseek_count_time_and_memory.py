@@ -287,7 +287,7 @@ if any(tool in tools_that_require_star_alignment for tool in tools_to_benchmark)
         "--sjdbOverhang", str(read_length_minus_one),
     ]
 
-    if not os.listdir(star_genome_dir):
+    if len(os.listdir(star_genome_dir)) == 0:
         elapsed_time = run_command_with_error_logging(star_build_command, track_time=True)
         with open(star_output_file, "w", encoding="utf-8") as f:
             f.write(f"STAR build runtime: {elapsed_time[0]} minutes, {elapsed_time[1]} seconds\n")

@@ -1,5 +1,6 @@
 import argparse
 import os
+import pandas as pd
 import subprocess
 import sys
 
@@ -36,8 +37,8 @@ parser.add_argument("--python2_env", default="python2_env", help="Conda environm
 
 # Just for accuracy analysis
 parser.add_argument("--cosmic_tsv", help="Path to COSMIC tsv")
-parser.add_argument("--cosmic_cdna_info_csv", help="Path to COSMIC csv with cdna info from gget cosmic")
 parser.add_argument("--unique_mcrs_df_path", help="Path to unique_mcrs_df_path from notebook 2")
+parser.add_argument("--cosmic_version", default=101, help="COSMIC version. Default: 101")
 
 
 args = parser.parse_args()
@@ -57,8 +58,8 @@ STRELKA_INSTALL_PATH = args.STRELKA_INSTALL_PATH
 python2_env = args.python2_env
 
 cosmic_tsv = args.cosmic_tsv
-cosmic_cdna_info_csv = args.cosmic_cdna_info_csv
 unique_mcrs_df_path = args.unique_mcrs_df_path
+cosmic_version = args.cosmic_version
 
 for name, path in {"STAR": STAR, "STRELKA_INSTALL_PATH": STRELKA_INSTALL_PATH}.items():
     if not os.path.exists(path) and not shutil.which(path):
@@ -79,6 +80,7 @@ alignment_folder = f"{strelka2_output_dir}/alignment"
 os.makedirs(alignment_folder, exist_ok=True)
 out_file_name_prefix = f"{alignment_folder}/sample_"
 vcf_file = os.path.join(strelka2_output_dir, "results", "variants", "variants.vcf.gz")
+aligned_bam = f"{out_file_name_prefix}Aligned.sortedByCoord.out.bam" if not aligned_bam else aligned_bam
 
 
 # commented out, as these should already be done prior to running this script
@@ -92,7 +94,7 @@ star_build_command = [
     "--sjdbGTFfile", reference_genome_gtf,
     "--sjdbOverhang", str(read_length_minus_one),
 ]
-if not os.listdir(star_genome_dir):
+if len(os.listdir(star_genome_dir)) == 0:
     run_command_with_error_logging(star_build_command)
 
 #* Reference genome index file
@@ -114,7 +116,6 @@ star_align_command = [
     "--twopassMode", "Basic"
 ]
 if not os.path.exists(aligned_bam):
-    aligned_bam = f"{out_file_name_prefix}Aligned.sortedByCoord.out.bam"
     run_command_with_error_logging(star_align_command)
 
 #* BAM index file creation
@@ -144,11 +145,16 @@ strelka2_run_command = [
 ]
 if not system_python2_installed:
     strelka2_run_command = ["conda", "run", "-n", python2_env] + strelka2_run_command
-run_command_with_error_logging(strelka2_run_command)
+if not os.path.exists(vcf_file):
+    run_command_with_error_logging(strelka2_run_command)
 
 if skip_accuracy_analysis:
     print("Skipping accuracy analysis")
     sys.exit()
 
-cosmic_df = add_vcf_info_to_cosmic_tsv(cosmic_tsv=cosmic_tsv, reference_genome_fasta=reference_genome_fasta, cosmic_df_out = None, cosmic_cdna_info_csv = cosmic_cdna_info_csv, mutation_source = "cdna")
+cosmic_df_out = cosmic_tsv.replace(".tsv", "_vcf_info_for_fig2.csv")
+if not os.path.exists(cosmic_df_out):
+    cosmic_df = add_vcf_info_to_cosmic_tsv(cosmic_tsv=cosmic_tsv, reference_genome_fasta=reference_genome_fasta, cosmic_df_out=cosmic_df_out, sequences="cdna", cosmic_version=cosmic_version)
+else:
+    cosmic_df = pd.read_csv(cosmic_df_out)
 perform_analysis(vcf_file=vcf_file, unique_mcrs_df_path=unique_mcrs_df_path, cosmic_df=cosmic_df, plot_output_folder=strelka2_output_dir, package_name="strelka2")

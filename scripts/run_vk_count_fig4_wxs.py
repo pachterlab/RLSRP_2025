@@ -188,7 +188,7 @@ def download_sequencing_total(
     vk_count_out_dir = os.path.join(sample_out_folder, "vk_count_out")
     adata_cleaned_out = os.path.join(vk_count_out_dir, "adata_cleaned.h5ad")
     if not os.path.exists(adata_cleaned_out) or overwrite_vk_count:
-        print(f"Running vk.count on {sample}")
+        print(f"running vk count on {sample}")
         vk_count_out_dir = os.path.join(sample_out_folder, "vk_count_out")
         vk_count_output_dict = vk.count(
             sample_out_folder,
