@@ -52,6 +52,10 @@ reference_genome_gtf = os.path.join(reference_out_dir, "ensembl_grch37_release93
 qc_against_gene_matrix = False
 save_vcf = True
 vcf_out = os.path.join(vk_count_out_dir, "variants.vcf")
+min_counts = 2
+filter_cells_by_min_counts = False  # can be done later
+filter_cells_by_min_genes = False  # can be done later
+cpm_normalization = False  # False because I just want counts directly
 
 # for qc_against_gene_matrix - same as from vk ref/build (not essential but speeds things up)
 variants = None if not qc_against_gene_matrix else os.path.join(reference_out_dir, "cosmic", "CancerMutationCensus_AllData_Tsv_v101_GRCh37", "CancerMutationCensus_AllData_v101_GRCh37_mutation_workflow.csv")
@@ -144,7 +148,10 @@ if not os.path.exists(adata_cleaned_out) or overwrite_vk_count:
         var_column=var_column,
         gene_id_column=gene_id_column,
         variants_usecols=variants_usecols,
-        disable_clean=True,
+        min_counts=min_counts,
+        filter_cells_by_min_counts=filter_cells_by_min_counts,
+        filter_cells_by_min_genes=filter_cells_by_min_genes,
+        cpm_normalization=cpm_normalization,
         disable_summarize=True
     )
 
@@ -154,4 +161,3 @@ if save_vcf and maf_out is not None:
         sys.exit()
     vcf2maf_command = ["conda", "run", "-n", conda_environment, "perl", vcf2maf_pl, "--input-vcf", vcf_out, "--output-maf", maf_out, "--ref-fasta", genome_reference_fasta, "--vep-path", f"{conda_path}/envs/{conda_environment}/bin", "--vep-data", vep_data, "--species", "homo_sapiens", "--ncbi-build", "GRCh37", "--cache-version", "93", "--retain-info", "AO,NS"]
     subprocess.run(vcf2maf_command, check=True)
-    

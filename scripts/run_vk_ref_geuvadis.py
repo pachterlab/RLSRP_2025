@@ -432,26 +432,26 @@ if not os.path.exists(variants):  # transcriptome variants don't exist
         adata_for_vcf = adata if save_vcf_samples else None
         write_to_vcf(variants_plink_df, output_vcf=geuvadis_true_vcf, save_vcf_samples=save_vcf_samples, adata=adata_for_vcf)
 
-# #* Run vk ref
-# for w_and_k_dict in w_and_k_list_of_dicts:
-#     w, k = w_and_k_dict["w"], w_and_k_dict["k"]
-#     logger.info(f"Running vk.ref with w={w} and k={k}")
-#     vk_ref_out = f"{vk_ref_out_parent}_w{w}_k{k}"
-#     vcrs_index = os.path.join(vk_ref_out, "vcrs_index.idx")
-#     vcrs_t2g = os.path.join(vk_ref_out, "vcrs_t2g_filtered.txt")
-#     vk.ref(
-#         variants=variants,
-#         sequences=sequences,
-#         w=w,
-#         k=k,
-#         seq_id_column=seq_id_column,
-#         var_column=var_column,
-#         out=vk_ref_out,
-#         dlist_reference_source=dlist_reference_source,
-#         index_out=vcrs_index,
-#         t2g_out=vcrs_t2g,
-#         threads=threads,
-#         chunksize=chunksize,
-#         save_logs=True,
-#         verbose=True,
-#     )
+#* Run vk ref
+for w_and_k_dict in w_and_k_list_of_dicts:
+    w, k = w_and_k_dict["w"], w_and_k_dict["k"]
+    logger.info(f"Running vk.ref with w={w} and k={k}")
+    vk_ref_out = f"{vk_ref_out_parent}_w{w}_k{k}"
+    vcrs_index = os.path.join(vk_ref_out, "vcrs_index.idx")
+    vcrs_t2g = os.path.join(vk_ref_out, "vcrs_t2g_filtered.txt")
+    vk.ref(
+        variants=variants,
+        sequences=sequences,
+        w=w,
+        k=k,
+        seq_id_column=seq_id_column,
+        var_column=var_column,
+        out=vk_ref_out,
+        dlist_reference_source=dlist_reference_source,
+        index_out=vcrs_index,
+        t2g_out=vcrs_t2g,
+        threads=threads,
+        chunksize=chunksize,
+        save_logs=True,
+        verbose=True,
+    )
