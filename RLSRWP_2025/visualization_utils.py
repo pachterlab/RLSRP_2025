@@ -214,7 +214,7 @@ def plot_jaccard_bar_plot(tissues, jaccard_values, output_plot_file=None):
 
 
 
-def plot_overall_metrics(metric_dict_collection, primary_metrics=("accuracy", "sensitivity", "specificity"), display_numbers=False, unique_mcrs_df=None, show_p_values=False, bonferroni=True, output_file=None, show=True, output_file_p_values=None, filter_real_negatives=False):
+def plot_overall_metrics(metric_dict_collection, primary_metrics=("accuracy", "sensitivity", "specificity"), display_numbers=False, display_numbers_fontsize=10, unique_mcrs_df=None, show_p_values=False, bonferroni=True, output_file=None, show=True, output_file_p_values=None, filter_real_negatives=False):
     if not isinstance(primary_metrics, (str, list, tuple)):
         raise ValueError("Primary metrics must be a string, list, or tuple.")
 
@@ -238,7 +238,7 @@ def plot_overall_metrics(metric_dict_collection, primary_metrics=("accuracy", "s
 
     # Prepare data
     x_primary = np.arange(len(primary_metrics))  # Positions for the metrics on the x-axis
-    bar_width = 0.25  # Width of each primary_metrics
+    bar_width = min(0.8 / len(groups), 0.25)  # Width of each primary_metrics
     offsets = np.arange(len(groups)) * bar_width - (len(groups) - 1) * bar_width / 2  # Centered offsets
 
     # Create the plot
@@ -251,7 +251,7 @@ def plot_overall_metrics(metric_dict_collection, primary_metrics=("accuracy", "s
         # Add value annotations for the primary metrics
         if display_numbers:
             for specific_bar, value in zip(bars_primary, y_values_primary):
-                ax1.text(specific_bar.get_x() + specific_bar.get_width() / 2, specific_bar.get_height(), f"{value:.3f}", ha="center", va="bottom", fontsize=10)
+                ax1.text(specific_bar.get_x() + specific_bar.get_width() / 2, specific_bar.get_height(), f"{value:.3f}", ha="center", va="bottom", fontsize=display_numbers_fontsize)
 
         y_values_primary_total.extend(y_values_primary)
 
@@ -398,9 +398,13 @@ def calculate_grouped_metric(grouped_df, y_metric, tool):
     return grouped_df
 
 
-def create_stratified_metric_line_plot(unique_mcrs_df, x_stratification, y_metric, tools, bins=None, keep_strict_bins=False, show_p_values=False, show_confidence_intervals=False, bonferroni=True, output_file=None, show=True, output_file_p_values=None, filter_real_negatives=False):
+def create_stratified_metric_line_plot(unique_mcrs_df, x_stratification, y_metric, tools, bins=None, keep_strict_bins=False, show_sample_size_per_x_value=False, show_p_values=False, show_confidence_intervals=False, bonferroni=True, output_file=None, show=True, output_file_p_values=None, filter_real_negatives=False, log=False):
     if x_stratification not in unique_mcrs_df.columns:
         raise ValueError(f"Invalid x_stratification: {x_stratification}. Valid options are {unique_mcrs_df.columns.tolist()}")
+    
+    if log:
+        print("Log scale is set to True. Will remove all values <= 0 from the data for this plot.")
+        unique_mcrs_df = unique_mcrs_df.loc[unique_mcrs_df[x_stratification] > 0].copy()
 
     # removes unnecessary columns for the function
     columns_to_keep_for_function = list(set([x_stratification, "included_in_synthetic_reads_mutant", "number_of_reads_mutant"]))
@@ -463,7 +467,7 @@ def create_stratified_metric_line_plot(unique_mcrs_df, x_stratification, y_metri
         x_indices = range(len(x_values))
     else:
         x_indices = x_values
-
+    
     if y_metric == "mutation_expression_prediction_error":
         for tool in tools:
             if f"mutation_expression_prediction_error_{tool}" not in unique_mcrs_df.columns:
@@ -558,11 +562,11 @@ def create_stratified_metric_line_plot(unique_mcrs_df, x_stratification, y_metri
                         symbol = "***"
                     plt.text(x, y + (custom_y_limit * 0.01), symbol, color=color_map_20[i], fontsize=12, ha="center")  # Slightly above the point
 
-    # # Set x-axis to log2 scale
-    # if log:  # log can be False (default, not log) or True (defaults to 2) or int (log base)
-    #     if log is True:
-    #         log = 2
-    #     plt.xscale("log", base=log)
+    # Set x-axis to log2 scale
+    if log:  # log can be False (default, not log) or True (defaults to 2) or int (log base)
+        if log is True:
+            log = 2
+        plt.xscale("log", base=log)
 
     if output_file_p_values:
         with open(output_file_p_values, "w", encoding="utf-8") as f:
@@ -572,15 +576,19 @@ def create_stratified_metric_line_plot(unique_mcrs_df, x_stratification, y_metri
     if y_metric in {"accuracy", "sensitivity", "specificity"}:  # "accuracy" in primary_metrics or "sensitivity" in primary_metrics or "specificity" in primary_metrics:
         plt.ylim(0, custom_y_limit)
 
-    x_values_new = []
-    for x_value in x_values:  # add the number of elements in each stratification below the x-axis label
-        number_of_elements = grouped_df.loc[grouped_df.index == x_value]["number_of_elements_in_the_group"].iloc[0]
-        x_values_new.append(f"{x_value}\n(n={number_of_elements})")
-    x_values = x_values_new
+    if show_sample_size_per_x_value:
+        x_values_new = []
+        for x_value in x_values:  # add the number of elements in each stratification below the x-axis label
+            number_of_elements = grouped_df.loc[grouped_df.index == x_value]["number_of_elements_in_the_group"].iloc[0]
+            x_values_new.append(f"{x_value}\n(n={number_of_elements})")
+        x_values = x_values_new
+
+    if np.all(np.equal(np.mod(bins, 1), 0)):  # if all bin values are integers, then display x-axis as integers
+        x_values = [int(x_value) for x_value in x_values]
 
     plt.xticks(ticks=x_indices, labels=x_values)
-    plt.xlabel(x_stratification_original, fontsize=12)
-    plt.ylabel(y_metric, fontsize=12)
+    plt.xlabel(x_stratification_original.replace("_", " "), fontsize=12)
+    plt.ylabel(y_metric.replace("_", " "), fontsize=12)
     # plt.legend(title="Tools")
     plt.grid(axis="y", linestyle="--", alpha=0.7)
 
@@ -781,7 +789,7 @@ def compute_95_confidence_interval_margin_of_error(values, take_absolute_value=F
     return mean, margin_of_error  # , ci_lower, ci_upper
 
 
-def create_stratified_metric_bar_plot_updated(unique_mcrs_df, x_stratification, y_metric, tools, display_numbers=False, show_p_values=False, show_confidence_intervals=True, bonferroni=True, output_file=None, show=True, output_file_p_values=None, filter_real_negatives=False):
+def create_stratified_metric_bar_plot_updated(unique_mcrs_df, x_stratification, y_metric, tools, display_numbers=False, display_numbers_fontsize=10, show_sample_size_per_x_value=False, show_p_values=False, show_confidence_intervals=True, bonferroni=True, output_file=None, show=True, output_file_p_values=None, filter_real_negatives=False):
     if x_stratification not in unique_mcrs_df.columns:
         raise ValueError(f"Invalid x_stratification: {x_stratification}. Valid options are {unique_mcrs_df.columns.tolist()}")
 
@@ -847,7 +855,7 @@ def create_stratified_metric_bar_plot_updated(unique_mcrs_df, x_stratification, 
     # Prepare data
     bar_names = unique_mcrs_df[x_stratification].unique()
     x_primary = np.arange(len(bar_names))  # Positions for the metrics on the x-axis
-    bar_width = 0.25  # Width of each primary_metrics
+    bar_width = min(0.8 / len(tools), 0.25)  # Width of each primary_metrics
     offsets = np.arange(len(tools)) * bar_width - (len(tools) - 1) * bar_width / 2  # Centered offsets
 
     # Create the plot
@@ -861,7 +869,7 @@ def create_stratified_metric_bar_plot_updated(unique_mcrs_df, x_stratification, 
         # Add value annotations for the primary metrics
         if display_numbers:
             for specific_bar, value in zip(bars_primary, y_values_primary):
-                plt.text(specific_bar.get_x() + specific_bar.get_width() / 2, specific_bar.get_height(), f"{value:.3f}", ha="center", va="bottom", fontsize=10)
+                plt.text(specific_bar.get_x() + specific_bar.get_width() / 2, specific_bar.get_height(), f"{value:.2f}", ha="center", va="bottom", fontsize=display_numbers_fontsize)
 
         y_values_primary_total.extend(y_values_primary)
 
@@ -954,11 +962,12 @@ def create_stratified_metric_bar_plot_updated(unique_mcrs_df, x_stratification, 
     if y_metric in {"accuracy", "sensitivity", "specificity"}:  # "accuracy" in primary_metrics or "sensitivity" in primary_metrics or "specificity" in primary_metrics:
         plt.ylim(0, custom_y_limit)
 
-    x_values_new = []
-    for x_value in bar_names:  # add the number of elements in each stratification below the x-axis label
-        number_of_elements = grouped_df.loc[grouped_df.index == x_value]["number_of_elements_in_the_group"].iloc[0]
-        x_values_new.append(f"{x_value}\n(n={number_of_elements})")
-    bar_names = x_values_new
+    if show_sample_size_per_x_value:
+        x_values_new = []
+        for x_value in bar_names:  # add the number of elements in each stratification below the x-axis label
+            number_of_elements = grouped_df.loc[grouped_df.index == x_value]["number_of_elements_in_the_group"].iloc[0]
+            x_values_new.append(f"{x_value}\n(n={number_of_elements})")
+        bar_names = x_values_new
 
     plt.xticks(ticks=x_primary, labels=bar_names, fontsize=12)
     plt.ylabel(y_metric, fontsize=12)
@@ -981,6 +990,14 @@ def plot_frequency_histogram(unique_mcrs_df, column_base, tools, fraction=False,
     """
     errors_dict = {}
 
+    # get bin ceiling
+    max_count = max(
+        unique_mcrs_df[f"{column_base}_{tool}"][unique_mcrs_df[f"FP_{tool}"]].max()
+        for tool in tools
+    )
+    bin_ceiling = math.ceil(np.log2(max_count))
+
+
     plt.figure(figsize=(10, 6))
     for index, tool in enumerate(tools):
         errors_dict[tool] = unique_mcrs_df.loc[unique_mcrs_df[f"FP_{tool}"], f"{column_base}_{tool}"]
@@ -991,7 +1008,8 @@ def plot_frequency_histogram(unique_mcrs_df, column_base, tools, fraction=False,
         else:
             weights = None  # No weights for absolute counts
             y_axis_label = "Number of FPs"
-        plt.hist(errors_dict[tool], bins=30, alpha=0.6, label=tool, color=color_map_20[index], weights=weights)
+        bins = 2 ** np.arange(0, bin_ceiling)  # [1, 2, 4, 8, 16, 32, etc]
+        plt.hist(errors_dict[tool], bins=bins, alpha=0.6, label=tool, color=color_map_20[index], weights=weights)
 
     # Add labels, legend, and title
     plt.xscale("log", base=2)
@@ -1007,7 +1025,7 @@ def plot_frequency_histogram(unique_mcrs_df, column_base, tools, fraction=False,
     plt.xlabel("Counts Detected")
     plt.ylabel(y_axis_label)
     plt.title("Histogram of Counts Detected for FPs")
-    plt.legend(loc="upper right")
+    # plt.legend(loc="upper right")
 
     # Show the plot
     plt.tight_layout()

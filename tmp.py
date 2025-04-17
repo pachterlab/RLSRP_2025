@@ -1,566 +1,718 @@
+"""varseek sequencing utilities."""
 import os
-import random
-import shutil
-import gget
-import subprocess
-import time
-import logging
+import scanpy as sc
+import scipy.sparse as sp
+import networkx as nx
 
+from tqdm import tqdm
 import numpy as np
 import pandas as pd
+import anndata as ad
+from tqdm import tqdm
+import re
+import scanpy as sc
+from sklearn.metrics import euclidean_distances
+from sklearn.neighbors import NearestNeighbors
+from pathlib import Path
+from collections import defaultdict
+import bisect
 import pysam
 
-import varseek as vk
-from varseek.utils import (
-    is_program_installed,
-    report_time_and_memory_of_script,
-    run_command_with_error_logging,
-    convert_mutation_cds_locations_to_cdna
+from RLSRWP_2025.visualization_utils import (
+    plot_ascending_bar_plot_of_cluster_distances,
+    plot_jaccard_bar_plot,
+    plot_knn_tissue_frequencies,
 )
 
-logger = logging.getLogger(__name__)
-logger.setLevel("INFO")
-formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s", "%H:%M:%S")
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(formatter)
-logger.addHandler(console_handler)
+from varseek.utils import (
+    calculate_metrics,
+    calculate_sensitivity_specificity,
+    create_venn_diagram,
+    draw_confusion_matrix,
+    safe_literal_eval,
+    vcf_to_dataframe,
+)
+
+# tqdm.pandas()
+
+def compute_intersection(set1, set2):
+    return len(set1.intersection(set2))
 
 
-script_dir = os.path.dirname(os.path.abspath(__file__))
-data_dir = os.path.join(os.path.dirname(script_dir), "data")
-reference_out_dir = os.path.join(data_dir, "reference")
-
-all_supported_tools_to_benchmark = {"varseek", "gatk_haplotypecaller", "gatk_mutect2", "strelka2", "varscan", "deepvariant"}
-tools_that_require_star_alignment = {"gatk_haplotypecaller", "gatk_mutect2", "strelka2", "varscan", "deepvariant"}
-tools_read_counts_limit = {"varseek": float("inf"),
-                                "gatk_haplotypecaller": 64,
-                                "gatk_mutect2": 64,
-                                "strelka2": float("inf"),
-                                "varscan": 256,
-                                "deepvariant": float("inf")}  # don't run if number_of_reads is above this value (will run if less than or equal to)
-
-### ARGUMENTS ###
-number_of_reads_list = [1, 4, 16, 64, 256, 1024]  # number of reads, in millions  # for debugging: [0.001, 0.002]
-tools_to_benchmark = ["varseek", "gatk_haplotypecaller", "gatk_mutect2", "strelka2", "varscan", "deepvariant"]  # tools to use; to add a tool, you must simply (1) include the tool in all_supported_tools_to_benchmark and tools_to_benchmark, (2) add a condition to run the script with the tool (see the bottom of this file), and (3) write the script that takes in necessary arguments and runs the tool
-dry_run = False  # only applies to the variant calling steps, not to the preparation (ie STAR, data downloads, etc)
-
-read_length = 150
-k = 51
-w = 47
-strand = None  # None for strand-agnostic (randomly-selected), "f" for forward, "r" for reverse, "both" for both - make sure this matches the reference genome (vk build command) - strand = True -> "f" or "r" here; strand = False -> None or "both" here - note that the strand is randomly selected per *transcript*, such that all drawn reads will come from the same strand no matter what
-add_noise_sequencing_error = True
-add_noise_base_quality = False
-error_rate = 0.0001  # only if add_noise_sequencing_error=True
-error_distribution = (0.85, 0.1, 0.05)  # sub, del, ins  # only if add_noise_sequencing_error=True
-max_errors = float("inf")  # only if add_noise_sequencing_error=True
-seq_id_column = "seq_ID"
-var_column = "mutation_cdna"
-threads = 16
-random_seed = 42
-qc_against_gene_matrix = False
-
-# varseek ref parameters
-vk_ref_out = os.path.join(data_dir, "vk_ref_out")
-vk_ref_index_path = os.path.join(vk_ref_out, "vcrs_index.idx")  # for vk count
-vk_ref_t2g_path = os.path.join(vk_ref_out, "vcrs_t2g_filtered.txt")  # for vk count
-dlist_reference_source = "t2t"
-
-# normal reference genome
-reference_genome_index_path = os.path.join(reference_out_dir, "ensembl_grch37_release93", "index.idx")  # can either already exist or will be created; only used if qc_against_gene_matrix=True
-reference_genome_t2g_path = os.path.join(reference_out_dir, "ensembl_grch37_release93", "t2g.txt")  # can either already exist or will be created; only used if qc_against_gene_matrix=True
-
-# varseek ref small k
-w_small = 27
-k_small = 31
-vk_ref_small_k_out = os.path.join(data_dir, "vk_ref_small_k_out")
-vk_ref_small_k_index_path = os.path.join(vk_ref_out, "vcrs_index.idx")  # for vk count
-vk_ref_small_k_t2g_path = os.path.join(vk_ref_out, "vcrs_t2g_filtered.txt")  # for vk count
+def compute_jaccard_index(set1, set2):
+    intersection = len(set1.intersection(set2))
+    union = len(set1.union(set2))
+    return intersection / union
 
 
-cosmic_mutations_path = os.path.join(reference_out_dir, "cosmic", "CancerMutationCensus_AllData_Tsv_v101_GRCh37", "CancerMutationCensus_AllData_v101_GRCh37_mutation_workflow.csv")  # for vk sim
-reference_cdna_path = os.path.join(reference_out_dir, "ensembl_grch37_release93", "Homo_sapiens.GRCh37.cdna.all.fa")  # for vk sim
-reference_cds_path = os.path.join(reference_out_dir, "ensembl_grch37_release93", "Homo_sapiens.GRCh37.cds.all.fa")  # for vk sim
-reference_genome_fasta = os.path.join(reference_out_dir, "ensembl_grch37_release93", "Homo_sapiens.GRCh37.dna.primary_assembly.fa")  # can either already exist or will be downloaded
-reference_genome_gtf = os.path.join(reference_out_dir, "ensembl_grch37_release93", "Homo_sapiens.GRCh37.87.gtf")  # can either already exist or will be downloaded
-genomes1000_vcf = os.path.join(reference_out_dir, "ensembl_grch37_release93", "1000GENOMES-phase_3.vcf")
-star_genome_dir = os.path.join(reference_out_dir, "ensembl_grch37_release93", "star_reference")
-reference_genome_gtf_cleaned = os.path.join(reference_out_dir, "ensembl_grch37_release93", "gtf_cleaned.gtf")  # for varscan only; to exclude, use None
-exons_bed = os.path.join(reference_out_dir, "ensembl_grch37_release93", "exons.bed")  # for varscan only; to exclude, use None
+# * TODO: this considers only the largest number of nearest neighbors, but not the ordinality, which is especially important because if I look for 15 nearest neighbors but a cancer type of interest only has 3 samples in my dataset then it will have a hard time winning out
+def compute_knn(adata_unknown, adata_combined_ccle_rnaseq, out_dir=".", k=10):
+    # Combine PCA embeddings from both datasets
+    combined_pca_embeddings = np.vstack([adata_combined_ccle_rnaseq.obsm["X_pca"], adata_unknown.obsm["X_pca"]])
 
-seqtk = "seqtk"
-STAR = "STAR"
-java = "/home/jmrich/opt/jdk-17.0.12+7/bin/java"
-picard_jar = "/home/jmrich/opt/picard.jar"
-gatk = "/home/jmrich/opt/gatk-4.6.0.0/gatk"
-STRELKA_INSTALL_PATH = "/home/jmrich/opt/strelka-2.9.10.centos6_x86_64"
-python2_env = "python2_env"
-VARSCAN_INSTALL_PATH = "/home/jmrich/opt/VarScan.v2.3.9.jar"
+    # Fit the k-NN model on the reference dataset
+    reference_embeddings = combined_pca_embeddings.obsm["X_pca"]
+    knn_model = NearestNeighbors(n_neighbors=k, metric="euclidean")
+    knn_model.fit(reference_embeddings)
 
-output_dir = os.path.join(data_dir, "time_and_memory_benchmarking_out_dir_20250324")  #* change for each run
-tmp_dir = "/data/benchmarking_tmp_20250324"  #!! replace with "tmp"
-overwrite = False
+    # Query the nearest neighbors for each point in `adata_unknown`
+    unknown_embeddings = adata_unknown.obsm["X_pca"]
+    distances, indices = knn_model.kneighbors(unknown_embeddings)
 
-deepvariant_model = os.path.join(tmp_dir, "deepvariant_model")
-model_checkpoint_data_path = os.path.join(deepvariant_model, "model.ckpt.data-00000-of-00001")
-model_checkpoint_example_path = os.path.join(deepvariant_model, "model.ckpt.example_info.json")
-model_checkpoint_index_path = os.path.join(deepvariant_model, "model.ckpt.index")
-model_checkpoint_meta_path = os.path.join(deepvariant_model, "model.ckpt.meta")
-### ARGUMENTS ###
-
-# # set random seeds
-# random.seed(random_seed)
-# np.random.seed(random_seed)
-
-if overwrite:
-    for out_directory in [output_dir, tmp_dir]:
-        if os.path.exists(out_directory):
-            shutil.rmtree(out_directory)
-
-# os.makedirs(output_dir)  # purposely not using exist_ok=True to ensure that the directory is non-existent  #* comment out for debugging to keep output_dir between runs
-# os.makedirs(tmp_dir)  # purposely not using exist_ok=True to ensure that the directory is non-existent  #* comment out for debugging to keep tmp_dir between runs
-os.makedirs(deepvariant_model, exist_ok=True)
-
-if not star_genome_dir:
-    star_genome_dir = os.path.join(tmp_dir, "star_reference")
-vk_sim_out_dir = os.path.join(tmp_dir, "vk_sim_out")
-
-if strand is None or strand == "both":
-    kb_count_strand = "unstranded"
-elif strand == "f":
-    kb_count_strand = "forward"
-elif strand == "r":
-    kb_count_strand = "reverse"
-
-vk_count_script_path = os.path.join(script_dir, "run_varseek_count_for_benchmarking.py")
-gatk_haplotypecaller_script_path = os.path.join(script_dir, "run_gatk_haplotypecaller_for_benchmarking.py")
-gatk_mutect2_script_path = os.path.join(script_dir, "run_gatk_mutect2_for_benchmarking.py")
-strelka_script_path = os.path.join(script_dir, "run_strelka_for_benchmarking.py")
-varscan_script_path = os.path.join(script_dir, "run_varscan_for_benchmarking.py")
-deepvariant_script_path = os.path.join(script_dir, "run_deepvariant_for_benchmarking.py")
-subprocess_script_path = os.path.join(script_dir, "run_command_with_subprocess.py")
-
-star_output_file = os.path.join(output_dir, "STAR_time_and_memory.txt")
-kb_reference_output_file = os.path.join(output_dir, "kb_reference_genome_time_and_memory.txt")
-
-# create synthetic reads
-if k and w:
-    if k <= w:
-        raise ValueError("k must be greater than w")
-    read_w = read_length - (k - w)  # note that this does not affect read length, just read *parent* length
-else:
-    read_w = read_length - 1
-
-
-for tool in tools_to_benchmark:
-    if tool not in all_supported_tools_to_benchmark:
-        raise ValueError(f"Tool {tool} is not supported. Supported tools are: {all_supported_tools_to_benchmark}")
-
-#* download COSMIC and sequences for vk sim if not already downloaded
-# download cosmic and cdna
-if not os.path.exists(reference_cdna_path):
-    logger.info("Downloading cDNA")
-    reference_cdna_dir = os.path.dirname(reference_cdna_path) if os.path.dirname(reference_cdna_path) else "."
-    gget_ref_command = ["gget", "ref", "-w", "cdna", "-r", "93", "--out_dir", reference_cdna_dir, "-d", "human_grch37"]
-    subprocess.run(gget_ref_command, check=True)
-    subprocess.run(["gunzip", f"{reference_cdna_path}.gz"], check=True)
-if not os.path.exists(reference_cds_path):
-    logger.info("Downloading CDS")
-    reference_cds_dir = os.path.dirname(reference_cds_path) if os.path.dirname(reference_cds_path) else "."
-    gget_ref_command = ["gget", "ref", "-w", "cds", "-r", "93", "--out_dir", reference_cds_dir, "-d", "human_grch37"]
-    subprocess.run(gget_ref_command, check=True)
-    subprocess.run(["gunzip", f"{reference_cds_path}.gz"], check=True)
-
-if not os.path.exists(cosmic_mutations_path):
-    logger.info("Downloading COSMIC")
-    reference_out_dir_cosmic = os.path.dirname(os.path.dirname(cosmic_mutations_path))
-    gget.cosmic(
-        None,
-        grch_version=37,
-        cosmic_version=101,
-        out=reference_out_dir_cosmic,
-        mutation_class="cancer",
-        download_cosmic=True,
-        gget_mutate=True,
+    tissue_counts = plot_knn_tissue_frequencies(
+        indices,
+        adata_combined_ccle_rnaseq,
+        output_plot_file=f"{out_dir}/knn_tissue_frequencies.png",
     )
 
-with open(cosmic_mutations_path) as f:
-    number_of_cosmic_mutations = sum(1 for _ in f) - 1  # adjust for headers
-
-cosmic_mutations = pd.read_csv(cosmic_mutations_path, nrows=2)
-cosmic_mutations_path_original = cosmic_mutations_path.replace(".csv", "_original.csv")
-if not os.path.exists(cosmic_mutations_path_original):
-    shutil.copy(cosmic_mutations_path, cosmic_mutations_path_original)
-
-if "mutation_cdna" not in cosmic_mutations.columns:
-    logger.info("Converting CDS to cDNA in COSMIC")
-    _, _ = convert_mutation_cds_locations_to_cdna(input_csv_path=cosmic_mutations_path, output_csv_path=cosmic_mutations_path, cds_fasta_path=reference_cds_path, cdna_fasta_path=reference_cdna_path, verbose=True)
-
-#* Make synthetic reads corresponding to the largest value in number_of_reads_list - if desired, I can replace this with real data
-number_of_reads_max = int(max(number_of_reads_list) * 10**6)  # convert to millions
-
-number_of_reads_per_variant_alt=100
-number_of_reads_per_variant_ref=150
-number_of_reads_per_variant_total = number_of_reads_per_variant_alt + number_of_reads_per_variant_ref
-
-if number_of_reads_max > (number_of_cosmic_mutations * number_of_reads_per_variant_total):
-    raise ValueError("Max reads is too large. Either increase number_of_reads_per_variant_alt and/or number_of_reads_per_variant_ref, or choose a larger variant database.")
-
-#* Download varseek index
-if not os.path.exists(vk_ref_index_path) or not os.path.exists(vk_ref_t2g_path):
-    vk.ref(variants="cosmic_cmc", sequences="cdna", w=w, k=k, out=vk_ref_out, dlist_reference_source=dlist_reference_source, download=True, index_out=vk_ref_index_path, t2g_out=vk_ref_t2g_path)
-    # alternatively, to build from scratch: subprocess.run([os.path.join(script_dir, "run_vk_ref.py")], check=True)
-
-if not os.path.exists(vk_ref_small_k_index_path) or not os.path.exists(vk_ref_small_k_t2g_path):
-    try:
-        vk.ref(variants="cosmic_cmc", sequences="cdna", w=w_small, k=k_small, out=vk_ref_out, dlist_reference_source=dlist_reference_source, download=True, index_out=vk_ref_small_k_index_path, t2g_out=vk_ref_small_k_t2g_path)
-    except ValueError:
-        logger.info(f"Cannot download vk ref index/t2g with w={w_small} and k={k_small}. Will skip this condition")
-
-#* install seqtk if not installed
-# if not is_program_installed(seqtk):
-#     raise ValueError("seqtk is required to run this script. Please install seqtk and ensure that it is in your PATH.")
-#     # subprocess.run("git clone https://github.com/lh3/seqtk.git", shell=True, check=True)
-#     # subprocess.run("cd seqtk && make", shell=True, check=True)
-#     # seqtk = os.path.join(script_dir, "seqtk/seqtk")
-
-#* Build normal genome reference (for vk clean in vk count) when qc_against_gene_matrix=True
-if qc_against_gene_matrix and (not os.path.exists(reference_genome_index_path) or not os.path.exists(reference_genome_t2g_path)):  # download reference if does not exist
-    if not os.path.exists(reference_genome_fasta) or not os.path.exists(reference_genome_gtf):
-        reference_genome_out_dir = os.path.dirname(reference_genome_fasta) if os.path.dirname(reference_genome_fasta) else "."
-        subprocess.run(["gget", "ref", "-w", "dna,gtf", "-r", "93", "--out_dir", reference_genome_out_dir, "-d", "human_grch37"], check=True)  # using grch37, ensembl 93 to agree with COSMIC
-        subprocess.run(["gunzip", f"{reference_genome_fasta}.gz"], check=True)
-        subprocess.run(["gunzip", f"{reference_genome_gtf}.gz"], check=True)
-    reference_genome_f1 = os.path.join(reference_out_dir, "ensembl_grch37_release93", "f1.fasta")
-    subprocess.run(["kb", "ref", "-t", str(threads), "-i", reference_genome_index_path, "-g", reference_genome_t2g_path, "-f1", reference_genome_f1, reference_genome_fasta, reference_genome_gtf], check=True)
-
-#* Download/build necessary files for alternative variant calling tools
-if any(tool in tools_that_require_star_alignment for tool in tools_to_benchmark):  # check if any tool in tools_to_benchmark requires STAR alignment
-    #* Download reference genome information
-    # reference_genome_fasta_url = "https://ftp.ensembl.org/pub/grch37/release-93/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.dna.primary_assembly.fa.gz"
-    # reference_genome_gtf_url = "https://ftp.ensembl.org/pub/grch37/release-93/gtf/homo_sapiens/Homo_sapiens.GRCh37.87.gtf.gz"
-    genomes1000_vcf_url = "https://ftp.ensembl.org/pub/grch37/release-93/variation/vcf/homo_sapiens/1000GENOMES-phase_3.vcf.gz"
-
-    reference_genome_out_dir = os.path.dirname(reference_genome_fasta) if os.path.dirname(reference_genome_fasta) else "."
-    os.makedirs(reference_genome_out_dir, exist_ok=True)
-    download_reference_genome_fasta_command = ["gget", "ref", "-w", "dna", "-r", "93", "--out_dir", reference_genome_out_dir, "-d", "human_grch37"]
-    unzip_reference_genome_fasta_command = ["gunzip", f"{reference_genome_fasta}.gz"]
-
-    reference_genome_out_dir = os.path.dirname(reference_genome_gtf) if os.path.dirname(reference_genome_gtf) else "."
-    os.makedirs(reference_genome_out_dir, exist_ok=True)
-    download_reference_genome_gtf_command = ["gget", "ref", "-w", "gtf", "-r", "93", "--out_dir", reference_genome_out_dir, "-d", "human_grch37"]
-    unzip_reference_genome_gtf_command = ["gunzip", f"{reference_genome_gtf}.gz"]
-
-    if os.path.dirname(genomes1000_vcf):
-        os.makedirs(os.path.dirname(genomes1000_vcf), exist_ok=True)
-    download_1000_genomes_command = ["wget", "-O", f"{genomes1000_vcf}.gz", genomes1000_vcf_url]
-    unzip_1000_genomes_command = ["gunzip", f"{genomes1000_vcf}.gz"]
-
-    if not os.path.exists(reference_genome_fasta):
-        run_command_with_error_logging(download_reference_genome_fasta_command)
-        run_command_with_error_logging(unzip_reference_genome_fasta_command)
-
-    if not os.path.exists(reference_genome_gtf):
-        run_command_with_error_logging(download_reference_genome_gtf_command)
-        run_command_with_error_logging(unzip_reference_genome_gtf_command)
-
-    if not os.path.exists(genomes1000_vcf):
-        run_command_with_error_logging(download_1000_genomes_command)
-        run_command_with_error_logging(unzip_1000_genomes_command)
-
-    read_length_minus_one = read_length - 1
-    os.makedirs(star_genome_dir, exist_ok=True)
-
-    if STAR != "STAR" and not os.path.exists(STAR):
-        raise ValueError("STAR is required to run STAR. Please install STAR and, if installed from source, ensure that it is in your PATH.")
-        # star_tarball = os.path.join(opt_dir, "2.7.11b.tar.gz")
-        # subprocess.run(["wget", "-O", star_tarball, "https://github.com/alexdobin/STAR/archive/2.7.11b.tar.gz"], check=True)
-        # subprocess.run(["tar", "-xzf", star_tarball, "-C", opt_dir], check=True)
-
-    #* Build STAR index
-    star_build_command = [
-        STAR,
-        "--runThreadN", str(threads),
-        "--runMode", "genomeGenerate",
-        "--genomeDir", star_genome_dir,
-        "--genomeFastaFiles", reference_genome_fasta,
-        "--sjdbGTFfile", reference_genome_gtf,
-        "--sjdbOverhang", str(read_length_minus_one),
-    ]
-
-    if len(os.listdir(star_genome_dir)) == 0:
-        elapsed_time = run_command_with_error_logging(star_build_command, track_time=True)
-        with open(star_output_file, "w", encoding="utf-8") as f:
-            f.write(f"STAR build runtime: {elapsed_time[0]} minutes, {elapsed_time[1]} seconds\n")
-
-    #* Index reference genome
-    if not os.path.exists(f"{reference_genome_fasta}.fai"):
-        start_time = time.perf_counter()
-        _ = pysam.faidx(reference_genome_fasta)
-        minutes, seconds = divmod(time.perf_counter() - start_time, 60)
-        with open(star_output_file, "a", encoding="utf-8") as f:
-            f.write(f"Genome indexing runtime: {minutes} minutes, {seconds} seconds\n")
-
-    #* Index 1000 genomes standard variants
-    index_feature_file_command = [
-        gatk, "IndexFeatureFile",
-        "-I", genomes1000_vcf
-    ]
-
-    if not os.path.exists(f"{genomes1000_vcf}.idx"):
-        run_command_with_error_logging(index_feature_file_command)
-
-if "varscan" in tools_to_benchmark:
-    if exons_bed and not os.path.isfile(exons_bed):
-        #* make a BED file of exon regions to speed up the process (note that, while this is useful for time and memory benchmarking, it does not really work in terms of putting out an accurate VCF)
-        if reference_genome_gtf_cleaned and not os.path.isfile(reference_genome_gtf_cleaned):
-            gffread_command = ["gffread", "-E", reference_genome_gtf, "-T", "-o", reference_genome_gtf_cleaned]  # gffread -E data/reference/ensembl_grch37_release93/Homo_sapiens.GRCh37.87.gtf -T -o gtf_cleaned.gtf
-            run_command_with_error_logging(gffread_command)
-
-        exon_bed_command = f"awk '$3 == \"exon\" {{print $1, $4-1, $5}}' OFS='\t' {reference_genome_gtf_cleaned} > {exons_bed}"  # awk '$3 == "exon" {print $1, $4-1, $5}' OFS='\t' gtf_cleaned.gtf > exons.bed
-        run_command_with_error_logging(exon_bed_command)
-
-if "deepvariant" in tools_to_benchmark:
-    if not os.path.exists(model_checkpoint_data_path):
-        subprocess.run(f"curl https://storage.googleapis.com/deepvariant/models/DeepVariant/1.4.0/DeepVariant-inception_v3-1.4.0+data-rnaseq_standard/model.ckpt.data-00000-of-00001 > {model_checkpoint_data_path}", check=True, shell=True)
-    
-    if not os.path.exists(model_checkpoint_example_path):
-        subprocess.run(f"curl https://storage.googleapis.com/deepvariant/models/DeepVariant/1.4.0/DeepVariant-inception_v3-1.4.0+data-rnaseq_standard/model.ckpt.example_info.json > {model_checkpoint_example_path}", check=True, shell=True)
-
-    if not os.path.exists(model_checkpoint_index_path):
-        subprocess.run(f"curl https://storage.googleapis.com/deepvariant/models/DeepVariant/1.4.0/DeepVariant-inception_v3-1.4.0+data-rnaseq_standard/model.ckpt.index > {model_checkpoint_index_path}", check=True, shell=True)
-
-    if not os.path.exists(model_checkpoint_meta_path):
-        subprocess.run(f"curl https://storage.googleapis.com/deepvariant/models/DeepVariant/1.4.0/DeepVariant-inception_v3-1.4.0+data-rnaseq_standard/model.ckpt.meta > {model_checkpoint_meta_path}", check=True, shell=True)
-
-if ("gatk_haplotypecaller" in tools_to_benchmark or "gatk_mutect2" in tools_to_benchmark):
-    if not is_program_installed(java):
-        raise ValueError("Java is required to run GATK. Please install Java and ensure that it is in your PATH.")
-        # below are commands that will install it on x64_linux
-        # wget https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.12%2B7/OpenJDK17U-jdk_x64_linux_hotspot_17.0.12_7.tar.gz
-        # tar -xvf OpenJDK17U-jdk_x64_linux_hotspot_17.0.12_7.tar.gz
-    if not os.path.exists(picard_jar):
-        raise ValueError("Picard is required to run GATK. Please install Picard and ensure that it is in your PATH.")
-        # subprocess.run(["wget", "https://github.com/broadinstitute/picard/releases/download/3.3.0/picard.jar", "-O", picard_jar], check=True)
-    if not os.path.exists(gatk):
-        raise ValueError("GATK is required to run GATK. Please install GATK and ensure that it is in your PATH.")
-        # os.chdir(opt_dir)
-        # gatk_dir_name = os.path.join(opt_dir, "gatk-4.6.0.0")
-        # subprocess.run(["wget", "https://github.com/broadinstitute/gatk/releases/download/4.6.0.0/gatk-4.6.0.0.zip", "-O", "gatk-4.6.0.0.zip"], check=True)
-        # subprocess.run(["unzip", "gatk-4.6.0.0.zip"], check=True)
-        # os.environ['PATH'] = f"{gatk_dir_name}:{os.environ['PATH']}"
+    plurality_tissue_counts = np.argmax(tissue_counts, axis=1)
+    print("True cancer type: ", adata_unknown.uns["sample_name"])
+    print("Predicted cancer type: ", plurality_tissue_counts)
+    print(
+        "Predicted cancer type and true cancer type match: ",
+        adata_unknown.uns["sample_name"] == plurality_tissue_counts,
+    )
 
 
-if "strelka2" in tools_to_benchmark:
-    if not os.path.exists(STRELKA_INSTALL_PATH):
-        raise ValueError("Strelka2 is required to run Strelka2. Please install Strelka2 and ensure that it is in your PATH.")
-        # strelka_tarball = f"{STRELKA_INSTALL_PATH}.tar.bz2"
-        # subprocess.run(["wget", "-O", strelka_tarball, "https://github.com/Illumina/strelka/releases/download/v2.9.10/strelka-2.9.10.centos6_x86_64.tar.bz2"], check=True)
-        # subprocess.run(["tar", "-xvjf", strelka_tarball, "-C", opt_dir], check=True)
+def compute_cluster_centroid_distances(adata_unknown, adata_combined_ccle_rnaseq, out_dir="."):
+    # Ensure PCA has been performed on `adata_combined_ccle_rnaseq` and `adata_unknown`
+    # Get the PCA coordinates for both datasets
+    reference_pca = adata_combined_ccle_rnaseq.obsm["X_pca"]
+    unknown_pca = adata_unknown.obsm["X_pca"]
 
-    if not shutil.which("python2"):
-        check_conda_environments_result = subprocess.run(["conda", "env", "list"], capture_output=True, text=True)
-        if python2_env not in check_conda_environments_result.stdout:
-            raise FileNotFoundError(f"System python2 and conda environment {python2_env} not found. Please install system python2 or create a conda environment with python2 with `conda create -n {python2_env} python=2.7`, and supply it as an argument --python2_env {python2_env}.") 
+    # Calculate the centroids of each Leiden cluster
+    cluster_centroids = {}
+    for cluster in adata_combined_ccle_rnaseq.obs["tissue"].unique():
+        # Select cells in the current cluster and compute the centroid
+        cluster_cells = reference_pca[adata_combined_ccle_rnaseq.obs["tissue"] == cluster]
+        centroid = cluster_cells.mean(axis=0)
+        cluster_centroids[cluster] = centroid
 
-if "varscan" in tools_to_benchmark and not os.path.exists(VARSCAN_INSTALL_PATH):
-    raise ValueError("VarScan is required to run VarScan. Please install VarScan and ensure that it is in your PATH.")
-    # subprocess.run(["wget", "-O", VARSCAN_INSTALL_PATH, "https://sourceforge.net/projects/varscan/files/VarScan.v2.3.9.jar/download"], check=True)
+    # Convert centroids to an array for easy distance calculation
+    centroid_matrix = np.array(list(cluster_centroids.values()))
 
-output_file = os.path.join(output_dir, "time_and_memory_benchmarking_report.txt")
-# file_mode = "a" if os.path.isfile(output_file) else "w"
-# with open(output_file, file_mode, encoding="utf-8") as f:
-#     f.write(f"Threads Argument: {threads}\n\n")
+    # Calculate distances from the unknown point to each centroid
+    distances = euclidean_distances(unknown_pca, centroid_matrix)
 
-#* Run variant calling tools
-for number_of_reads in number_of_reads_list:
-    number_of_reads = int(number_of_reads * 10**6)  # convert to millions
-    fastq_output_path = os.path.join(tmp_dir, f"reads_{number_of_reads}_fastq.fastq")
-    if not os.path.isfile(fastq_output_path):
-        # seqtk_sample_command = f"{seqtk} sample -s {random_seed} {fastq_output_path_max_reads} {number_of_reads} > {fastq_output_path}"
-        # logger.info(f"Running seqtk sample for {number_of_reads} reads")
-        # subprocess.run(seqtk_sample_command, shell=True, check=True)
+    sorted_distances = sorted(zip(cluster_centroids.keys(), distances[0]), key=lambda x: x[1])
 
-        number_of_variants_to_sample = number_of_reads // number_of_reads_per_variant_total
+    cluster_centroid_distance_file = f"{out_dir}/cluster_centroid_distances.txt"
+    # Write the sorted distances to a file
+    with open(cluster_centroid_distance_file, "w", encoding="utf-8") as f:
+        for cluster, dist in sorted_distances:
+            f.write(f"Distance from unknown sample to centroid of cluster {cluster}: {dist}\n")
 
-        logger.info(f"Building synthetic reads for {number_of_reads} reads")
-        _ = vk.sim(
-            variants=cosmic_mutations_path,
-            reads_fastq_out=fastq_output_path,
-            number_of_variants_to_sample=number_of_variants_to_sample,
-            strand=strand,
-            number_of_reads_per_variant_alt=number_of_reads_per_variant_alt,
-            number_of_reads_per_variant_ref=number_of_reads_per_variant_ref,
-            read_length=read_length,
-            seed=random_seed,
-            add_noise_sequencing_error=add_noise_sequencing_error,
-            add_noise_base_quality=add_noise_base_quality,
-            error_rate=error_rate,
-            error_distribution=error_distribution,
-            max_errors=max_errors,
-            with_replacement=True,
-            gzip_reads_fastq_out=False,
-            sequences=reference_cdna_path,
-            seq_id_column=seq_id_column,
-            var_column=var_column,
-            variant_type_column=None,
-            reference_out_dir=reference_out_dir,
-            out=vk_sim_out_dir,
+    cluster_centroid_distance_plot_file = f"{out_dir}/cluster_centroid_distances.png"
+    plot_ascending_bar_plot_of_cluster_distances(sorted_distances, output_plot_file=cluster_centroid_distance_plot_file)
+
+    # Output the closest cluster
+    closest_cluster, closest_distance = sorted_distances[0]
+    print("True cancer type: ", adata_unknown.uns["sample_name"])
+    print("Predicted cancer type and distance: ", closest_cluster, closest_distance)
+    print(
+        "Predicted cancer type and true cancer type match: ",
+        adata_unknown.uns["sample_name"] == closest_cluster,
+    )
+
+
+def compute_jaccard_indices(
+    adata_unknown,
+    grouped_tissue_dir,
+    jaccard_type="mutation",
+    out_dir=".",
+    jaccard_or_intersection="jaccard",
+):
+    if jaccard_type == "mutation":
+        column_name = "header_with_gene_name"
+        text_file = "sorted_mutations.txt"
+    elif jaccard_type == "mutated_genes":
+        column_name = "gene_name"
+        text_file = "sorted_mutated_genes.txt"
+    else:
+        raise ValueError("Invalid jaccard_type. Must be 'mutation' or 'mutated_genes'")
+    # Initialize a dictionary to store mutations for each tissue
+    tissue_mutations = {}
+
+    adata_unknown_unique_mutations = set(adata_unknown.var[column_name])
+
+    # Loop through each subfolder in `grouped_tissue_dir`
+    for tissue in os.listdir(grouped_tissue_dir):
+        specific_tissue_dir = os.path.join(grouped_tissue_dir, tissue)
+        sorted_mutations_file = os.path.join(specific_tissue_dir, text_file)
+
+        # Initialize an empty set for mutations in this tissue
+        mutations = set()
+
+        # Check if the file exists in the current tissue folder
+        if os.path.isfile(sorted_mutations_file):
+            with open(sorted_mutations_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    mutation_name = line.split()[0]  # Grab the first column (mutation name)
+                    mutations.add(mutation_name)
+
+        if jaccard_or_intersection == "jaccard":
+            jaccard_index_mutations = compute_jaccard_index(mutations, adata_unknown_unique_mutations)
+        elif jaccard_or_intersection == "intersection":
+            jaccard_index_mutations = compute_intersection(mutations, adata_unknown_unique_mutations)
+
+        tissue_mutations[tissue] = jaccard_index_mutations
+
+    tissues = list(adata_unknown_unique_mutations.keys())
+    jaccard_values = list(adata_unknown_unique_mutations.values())
+
+    sorted_data = sorted(zip(jaccard_values, tissues), reverse=True)
+    tissues, jaccard_values = zip(*sorted_data)
+
+    plot_jaccard_bar_plot(
+        tissues,
+        jaccard_values,
+        output_plot_file=f"{out_dir}/jaccard_bar_plot_{jaccard_type}.png",
+    )
+
+    # Find the tissue with the maximum Jaccard index
+    max_tissue = max(adata_unknown_unique_mutations, key=adata_unknown_unique_mutations.get)
+    max_jaccard = adata_unknown_unique_mutations[max_tissue]
+
+    print("True cancer type: ", adata_unknown.uns["sample_name"])
+    print("Predicted cancer type and jaccard for mutations: ", max_tissue, max_jaccard)
+    print(
+        "Predicted cancer type and true cancer type match: ",
+        adata_unknown.uns["sample_name"] == max_tissue,
+    )
+
+
+# TODO: write this
+def compute_mx_metric():
+    pass
+    # return a list of marker mutations for each cancer type, and provide these as input along with the unknown sample's mutation matrix to *mx assign* (might only work for single-cell)
+    # - identify cancer-specific marker mutations (or genes, and just apply to all of it's mutations in my database) from the literature ("old")
+    # - return a list of marker mutations for each cancer type from my cell lines ("new")
+    # - merge these with *ec merge*
+    # - run *ec index* on the merged marker list
+    # - run *mx extract* on the output of *ec index*
+    # - run *mx clean* on the output of *mx extract*
+    # - run *mx assign* on the output of *mx clean*
+
+
+def predict_cancer_type(
+    adata_path,
+    adata_combined_ccle_rnaseq,
+    pca_components,
+    grouped_tissue_dir,
+    sample_name,
+    sample_to_cancer_type,
+    metric="knn",
+    k=10,
+    use_binary_matrix=False,
+):
+    sample_dir = os.path.dirname(os.path.dirname(adata_path))
+    adata_unknown = sc.read_h5ad(adata_path)
+    adata_unknown.uns["sample_name"] = sample_name
+    adata_unknown.uns["cancer_type"] = sample_to_cancer_type[sample_name]
+
+    if use_binary_matrix:
+        adata_unknown.X = (adata_unknown.X > 0).astype(int)
+
+    # Identify common genes between the two datasets
+    common_genes = adata_unknown.var_names.intersection(adata_combined_ccle_rnaseq.var_names)
+
+    # Subset adata_unknown to include only these common genes
+    adata_unknown = adata_unknown[:, common_genes].copy()
+
+    # Step 2: Center the new data using the mean of the original data
+    # Note: adata_original.X.mean(axis=0) assumes both datasets have the same set of genes/variables
+    mean_center = np.mean(adata_combined_ccle_rnaseq.X, axis=0)
+    adata_unknown_centered = adata_unknown.X - mean_center
+
+    # Step 3: Project the new data into the PCA space of the original data
+    # This will give you the PCA coordinates for adata_unknown in the same space as adata_original
+    adata_unknown.obsm["X_pca"] = adata_unknown_centered.dot(pca_components)
+
+    # Optional: Store the explained variance for reference if needed
+    adata_unknown.uns["pca"] = adata_combined_ccle_rnaseq.uns["pca"]  # Copy explained variance, etc.
+
+    if metric == "knn":
+        compute_knn(
+            adata_unknown=adata_unknown,
+            adata_combined_ccle_rnaseq=adata_combined_ccle_rnaseq,
+            out_dir=sample_dir,
             k=k,
-            w=w,
-            make_dataframes=False
         )
+    elif metric == "euclidean":
+        compute_cluster_centroid_distances(
+            adata_unknown=adata_unknown,
+            adata_combined_ccle_rnaseq=adata_combined_ccle_rnaseq,
+            out_dir=sample_dir,
+        )
+    elif metric == "jaccard":
+        compute_jaccard_indices(
+            adata_unknown=adata_unknown,
+            grouped_tissue_dir=grouped_tissue_dir,
+            out_dir=sample_dir,
+        )
+    elif metric == "intersection":
+        compute_jaccard_indices(
+            adata_unknown=adata_unknown,
+            grouped_tissue_dir=grouped_tissue_dir,
+            out_dir=sample_dir,
+        )
+    elif metric == "mx":
+        compute_mx_metric()
 
-    kb_count_reference_genome_out_dir = os.path.join(tmp_dir, f"kb_count_reference_genome_out_dir_{number_of_reads}")
-    # # commented out because I now include this within vk count if I do it at all
-    # if not os.path.exists(kb_count_reference_genome_out_dir):
-    #     # kb count, reference genome
-    #     kb_count_standard_index_command = [
-    #         "kb",
-    #         "count",
-    #         "-t",
-    #         str(threads),
-    #         "-i",
-    #         reference_genome_index_path,
-    #         "-g",
-    #         reference_genome_t2g_path,
-    #         "-x",
-    #         "bulk",
-    #         "--h5ad",
-    #         "--parity",
-    #         "single",
-    #         "--strand",
-    #         kb_count_strand,
-    #         "-o",
-    #         kb_count_reference_genome_out_dir,
-    #         fastq_output_path
-    #     ]
 
-    #     logger.info(f"kb count, reference genome, {number_of_reads} reads")
-    #     script_title = f"kb count reference genome pseudoalignment {number_of_reads} reads {threads} threads"
-    #     _ = report_time_and_memory_of_script(subprocess_script_path, output_file = kb_reference_output_file, argparse_flags = f'"{str(kb_count_standard_index_command)}"', script_title = script_title)
-    #     # subprocess.run(kb_count_standard_index_command, check=True)
+
+
+def add_variant_type_gatk(df):
+    # Define the conditions
+    conditions = [(df["REF"].str.len() > 1) & (df["ALT"].str.len() == 1), (df["REF"].str.len() == 1) & (df["ALT"].str.len() > 1), (df["REF"].str.len() == 1) & (df["ALT"].str.len() == 1), (df["REF"].str.len() > 1) & (df["ALT"].str.len() > 1)]  # Deletion  # Insertion  # Substitution  # Delins
+
+    # Define the corresponding mutation types
+    variant_types = ["deletion", "insertion", "substitution", "delins"]
+
+    # Apply the conditions and assign the values to the new column
+    df["variant_type"] = np.select(conditions, variant_types, default="unknown")
+
+    # For 'deletion', add 'deleted_bases' column with REF[1:]
+    df.loc[df["variant_type"] == "deletion", "deleted_bases"] = df["REF"].str[1:]
+
+    # For 'insertion', add 'inserted_bases' column with ALT[1:]
+    df.loc[df["variant_type"] == "insertion", "inserted_bases"] = df["ALT"].str[1:]
+
+    return df
+
+def merge_gatk_and_cosmic(df_mut, cosmic_df, exact_position=False):
+    df_mut = df_mut.copy()
+    cosmic_df = cosmic_df.copy()
+
+    if exact_position:
+        # take the intersection of COSMIC and STAR dfs based on CHROM, POS, REF, ALT - but keep the ID from the COSMIC vcf
+        # note that because there may be 2+ rows in COSMIC that share the same chrom, pos, ref, and alt (ie from alternatively spliced mutations), there may be some rows in mut_cosmic_merged_df that are duplicates for all but the ID column - but I don't want to drop these because I want to make sure I consider both headers in my set
+        merged_df = pd.merge(df_mut, cosmic_df, on=["CHROM", "POS", "REF", "ALT"], how="inner", suffixes=("_df1", "_df2"))
+
+        merged_df = merged_df.drop(columns=["ID_df1", "POS_df1"]).rename(columns={"ID_df2": "ID", "POS_df2": "POS"})
+    else:
+        if "variant_type" not in df_mut.columns:
+            df_mut = add_variant_type_gatk(df_mut)
+        if "variant_type" not in cosmic_df.columns:
+            cosmic_df = add_variant_type_gatk(cosmic_df)
+
+        # Split `df_mut` and `cosmic_df` by mutation type
+        sub_delins_mut = df_mut[df_mut["variant_type"].isin(["substitution", "delins"])]
+        del_mut = df_mut[df_mut["variant_type"] == "deletion"]
+        ins_mut = df_mut[df_mut["variant_type"] == "insertion"]
+
+        sub_delins_cosmic = cosmic_df[cosmic_df["variant_type"].isin(["substitution", "delins"])]
+        del_cosmic = cosmic_df[cosmic_df["variant_type"] == "deletion"]
+        ins_cosmic = cosmic_df[cosmic_df["variant_type"] == "insertion"]
+
+        # 1. Merge substitution and delins
+        sub_delins_merged = pd.merge(sub_delins_mut, sub_delins_cosmic, on=["CHROM", "POS", "REF", "ALT"], how="left", suffixes=("_df1", "_df2"))
+
+        sub_delins_merged = sub_delins_merged.drop(columns=["ID_df1", "variant_type_df1", "variant_type_df2", "deleted_bases_df1", "deleted_bases_df2", "inserted_bases_df1", "inserted_bases_df2"]).rename(columns={"ID_df2": "ID"})
+
+        # 2. Merge deletion
+        del_merged = pd.merge(del_mut, del_cosmic, on=["CHROM", "deleted_bases"], how="left", suffixes=("_df1", "_df2"))
+
+        # Filter rows where POS is within a certain range, setting the threshold dynamically based on 'sub' column - subs must be perfect, indels can be within 5
+        del_merged = del_merged[abs(del_merged["POS_df1"] - del_merged["POS_df2"]) <= 5]
+
+        del_merged = del_merged.drop(columns=["ID_df1", "POS_df1", "REF_df1", "ALT_df1", "variant_type_df1", "variant_type_df2", "inserted_bases_df1", "inserted_bases_df2", "deleted_bases"]).rename(columns={"ID_df2": "ID", "POS_df2": "POS", "REF_df2": "REF", "ALT_df2": "ALT"})
+
+        # 3. Merge insertion
+        ins_merged = pd.merge(ins_mut, ins_cosmic, on=["CHROM", "inserted_bases"], how="left", suffixes=("_df1", "_df2"))
+
+        # Filter rows where POS is within a certain range, setting the threshold dynamically based on 'sub' column - subs must be perfect, indels can be within 5
+        ins_merged = ins_merged[abs(ins_merged["POS_df1"] - ins_merged["POS_df2"]) <= 5]
+
+        ins_merged = ins_merged.drop(columns=["ID_df1", "POS_df1", "REF_df1", "ALT_df1", "variant_type_df1", "variant_type_df2", "deleted_bases_df1", "deleted_bases_df2", "inserted_bases"]).rename(columns={"ID_df2": "ID", "POS_df2": "POS", "REF_df2": "REF", "ALT_df2": "ALT"})
+
+        # Combine all results
+        merged_df = pd.concat([sub_delins_merged, del_merged, ins_merged], ignore_index=True)
+
+        return merged_df
+
+
+def create_mutated_gene_count_matrix_from_mutation_count_matrix(adata, sum_strategy="total_reads", merge_strategy="all", use_binary_matrix=False):
+    """
+    This function takes a mutation count matrix and aggregates the counts for mutations belonging to the same gene. The function assumes that the AnnData object has the following columns in adata.var:
+    - gene_name_set_string: a string containing a semi-colon separated list of gene names for each mutation
+    - vcrs_id: a unique identifier for each mutation
+
+    Parameters
+    ----------
+    adata : AnnData
+
+    merge_strategy : str
+        The strategy to use when merging mutations. The following options are available:
+        - 'all': merge based on all genes matching (i.e., gene_name_set_string)
+        - 'any': merge based on any genes mapping (i.e., any match in gene_name_set)
+    sum_strategy: str
+        The strategy for summing VCRSs - options:
+        - 'total_reads': sum the total reads for each VCRS
+        - 'unique_variants': sum the number of unique variants detected for a gene
+    """
+
+    if sum_strategy == "unique_variants":
+        adata.X = (adata.X > 0).astype(int)  # convert to binary matrix
+        count_column = "variant_count"
+    else:
+        count_column = "vcrs_count"
+
+    if merge_strategy == "all":
+        gene_column = "gene_name_set_string"
+    elif merge_strategy == "any":  # TODO: untested for merge_strategy == "any"
+        gene_column = "gene_name_set"
+        gene_names = adata.var[gene_column]
+        vcrs_ids = adata.var_names
+        # Create a graph where each node is an vcrs_id
+        graph = nx.Graph()
+        for i, genes in enumerate(gene_names):
+            for j in range(i + 1, len(gene_names)):
+                if set(genes).intersection(gene_names[j]):
+                    graph.add_edge(vcrs_ids[i], vcrs_ids[j])
+
+        # Find connected components (each component is a group of columns to merge)
+        components = list(nx.connected_components(graph))
+
+        # Step 2: Create a mapping for new groups
+        new_var = []
+        group_mapping = {}
+        for group_id, component in enumerate(components):
+            # Combine gene names and vcrs_ids for the group
+            group_genes = sorted(set.union(*(set(gene_names[vcrs_ids.tolist().index(mcrs)]) for mcrs in component)))
+            group_vcrs_ids = sorted(component)
+
+            # Use a representative name for the group
+            group_name = ";".join(group_genes)
+            for mcrs in component:
+                group_mapping[mcrs] = group_name
+
+            # Store new metadata
+            new_var.append({"gene_name_set_string": group_name, "vcrs_id_list": group_vcrs_ids})
+
+    # Step 1: Extract mutation-gene mappings
+    gene_mapping = adata.var[gene_column]  # because I am using gene_name_set_string, this means that any merged mcrs's with different gene names will not be included in merging/summing
+    vcrs_id_mapping = adata.var["vcrs_id"]
+
+    # Step 2: Convert your data to a DataFrame for easier manipulation
+    if sp.issparse(adata.X):
+        data_df = pd.DataFrame.sparse.from_spmatrix(adata.X, index=adata.obs_names, columns=adata.var_names)
+    else:
+        data_df = pd.DataFrame(adata.X, index=adata.obs_names, columns=adata.var_names)
+
+    # Step 3: Add gene mapping to the DataFrame for aggregation
+    if merge_strategy == "all":
+        data_df.columns = gene_mapping.values
+    elif merge_strategy == "any":
+        data_df.columns = [group_mapping[col] for col in data_df.columns]
+
+    vcrs_id_df = pd.Series(vcrs_id_mapping.values, index=adata.var_names).groupby(gene_mapping).agg(list)
+
+    # Step 4: Group by gene and sum across mutations belonging to the same gene
+    data_gene_df = data_df.groupby(axis=1, level=0).sum()
+
+    # Step 5: Convert the result back into an AnnData object
+    adata_gene = sc.AnnData(data_gene_df, obs=adata.obs.copy())
+    adata_gene.var_names = data_gene_df.columns  # Gene names
+
+    adata_gene.var[gene_column] = adata_gene.var_names  # make this a column
+    adata_gene.var["vcrs_id_list"] = vcrs_id_df.loc[data_gene_df.columns].values
+
+    if use_binary_matrix:
+        adata_gene.X = (adata_gene.X > 0).astype(int)
+
+    adata_gene.var[count_column] = adata_gene.X.sum(axis=0).A1 if hasattr(adata_gene.X, "A1") else np.asarray(adata_gene.X.sum(axis=0)).flatten()
+
+    return adata_gene
+
+
+def perform_analysis(vcf_file, unique_mcrs_df_path, cosmic_df, plot_output_folder = "plots", unique_mcrs_df_path_out = None, package_name = "tool"):
+    if not unique_mcrs_df_path_out:
+        unique_mcrs_df_path_out = unique_mcrs_df_path
+
+    #* Merging into COSMIC
+    # Convert VCF to DataFrame
+    df_tool = vcf_to_dataframe(vcf_file, additional_columns = True)
+    df_tool = df_tool[['CHROM', 'POS', 'ID', 'REF', 'ALT', 'INFO_DP']].rename(columns={'INFO_DP': f'DP_{package_name}'})
+
+    # load in unique_mcrs_df
+    unique_mcrs_df = pd.read_csv(unique_mcrs_df_path)
+    unique_mcrs_df["header_list"] = unique_mcrs_df["header_list"].apply(safe_literal_eval)
+
+    tool_cosmic_merged_df = merge_gatk_and_cosmic(df_tool, cosmic_df, exact_position=False)  # change exact_position to True to merge based on exact position as before
+    id_set_tool = set(tool_cosmic_merged_df['ID'])
+
+    # Merge DP values into unique_mcrs_df
+    # Step 1: Remove rows with NaN values in 'ID' column
+    tool_cosmic_merged_df_for_merging = tool_cosmic_merged_df[['ID', f'DP_{package_name}']].dropna(subset=['ID']).rename(columns={'ID': 'vcrs_header'})
+
+    # Step 2: Drop duplicates from 'ID' column
+    tool_cosmic_merged_df_for_merging = tool_cosmic_merged_df_for_merging.drop_duplicates(subset=['vcrs_header'])
+
+    # Step 3: Left merge with unique_mcrs_df
+    unique_mcrs_df = pd.merge(
+        unique_mcrs_df,               # Left DataFrame
+        tool_cosmic_merged_df_for_merging,         # Right DataFrame
+        on='vcrs_header',
+        how='left'
+    )
+
+    number_of_mutations_tool = len(df_tool.drop_duplicates(subset=['CHROM', 'POS', 'REF', 'ALT']))
+    number_of_cosmic_mutations_tool = len(tool_cosmic_merged_df.drop_duplicates(subset=['CHROM', 'POS', 'REF', 'ALT']))
+
+    # unique_mcrs_df['header_list'] each contains a list of strings. I would like to make a new column unique_mcrs_df[f'mutation_detected_{package_name}'] where each row is True if any value from the list unique_mcrs_df['vcrs_header'] is in the set id_set_mut  # keep in mind that my IDs are the mutation headers (ENST...), NOT mcrs headers or mcrs ids
+    unique_mcrs_df[f'mutation_detected_{package_name}'] = unique_mcrs_df['header_list'].apply(
+        lambda header_list: any(header in id_set_tool for header in header_list)
+    )
+
+    # calculate expression error
+    unique_mcrs_df['mutation_expression_prediction_error'] = unique_mcrs_df[f'DP_{package_name}'] - unique_mcrs_df['number_of_reads_mutant']  # positive means overpredicted, negative means underpredicted
+
+    unique_mcrs_df['TP'] = (unique_mcrs_df['included_in_synthetic_reads_mutant'] & unique_mcrs_df[f'mutation_detected_{package_name}'])
+    unique_mcrs_df['FP'] = (~unique_mcrs_df['included_in_synthetic_reads_mutant'] & unique_mcrs_df[f'mutation_detected_{package_name}'])
+    unique_mcrs_df['FN'] = (unique_mcrs_df['included_in_synthetic_reads_mutant'] & ~unique_mcrs_df[f'mutation_detected_{package_name}'])
+    unique_mcrs_df['TN'] = (~unique_mcrs_df['included_in_synthetic_reads_mutant'] & ~unique_mcrs_df[f'mutation_detected_{package_name}'])
+
+    tool_stat_path = f"{plot_output_folder}/reference_metrics_{package_name}.txt"
+    metric_dictionary_reference = calculate_metrics(unique_mcrs_df, header_name = "vcrs_header", check_assertions = False, out = tool_stat_path)
+    draw_confusion_matrix(metric_dictionary_reference)
+
+    true_set = set(unique_mcrs_df.loc[unique_mcrs_df['included_in_synthetic_reads_mutant'], 'vcrs_header'])
+    positive_set = set(unique_mcrs_df.loc[unique_mcrs_df[f'mutation_detected_{package_name}'], 'vcrs_header'])
+    create_venn_diagram(true_set, positive_set, TN = metric_dictionary_reference['TN'], out_path = f"{plot_output_folder}/venn_diagram_reference_cosmic_only_{package_name}.png")
+
+    noncosmic_mutation_id_set = {f'{package_name}_fp_{i}' for i in range(1, number_of_mutations_tool - number_of_cosmic_mutations_tool + 1)}
+
+    positive_set_including_noncosmic_mutations = positive_set.union(noncosmic_mutation_id_set)
+    false_positive_set = set(unique_mcrs_df.loc[unique_mcrs_df['FP'], 'vcrs_header'])
+    false_positive_set_including_noncosmic_mutations = false_positive_set.union(noncosmic_mutation_id_set)
+
+    FP_including_noncosmic = len(false_positive_set_including_noncosmic_mutations)
+    accuracy, sensitivity, specificity = calculate_sensitivity_specificity(metric_dictionary_reference['TP'], metric_dictionary_reference['TN'], FP_including_noncosmic, metric_dictionary_reference['FN'])
+
+    with open(tool_stat_path, "a", encoding="utf-8") as file:
+        file.write(f"FP including non-cosmic: {FP_including_noncosmic}\n")
+        file.write(f"accuracy including non-cosmic: {accuracy}\n")
+        file.write(f"specificity including non-cosmic: {specificity}\n")
+
+    create_venn_diagram(true_set, positive_set_including_noncosmic_mutations, TN = metric_dictionary_reference['TN'], out_path = f"{plot_output_folder}/venn_diagram_reference_including_noncosmics_{package_name}.png")
+
+    unique_mcrs_df.rename(columns={'TP': f'TP_{package_name}', 'FP': f'FP_{package_name}', 'TN': f'TN_{package_name}', 'FN': f'FN_{package_name}', 'mutation_expression_prediction_error': f'mutation_expression_prediction_error_{package_name}'}, inplace=True)
+    unique_mcrs_df.to_csv(unique_mcrs_df_path_out, index=False)
+
+
+def make_transcript_df_from_gtf(gtf):
+    if gtf is None:
+        raise ValueError("gtf must be provided if variant_position_annotations is not 'cdna' or strand_bias_end is '3p'")
+    if isinstance(gtf, str):
+        gtf_cols = ["chromosome", "source", "feature", "start", "end", "score", "strand", "frame", "attributes"]
+        gtf_df = pd.read_csv(gtf, sep="\t", comment="#", names=gtf_cols)
+    elif isinstance(gtf, pd.DataFrame):
+        gtf_df = gtf.copy()
+    else:
+        raise ValueError("gtf must be a path to a GTF file or a pandas DataFrame")
+    gtf_df["chromosome"] = gtf_df["chromosome"].astype(str)  # otherwise parquet might infer integer and throw error when saving
+    gtf_df["region_length"] = gtf_df["end"] - gtf_df["start"] + 1  # this corresponds to the unspliced transcript length, NOT the spliced transcript/CDS length (which is what I care about)
+    gtf_df["transcript_ID"] = gtf_df["attributes"].str.extract(r'transcript_id "([^"]+)"')
+    transcript_df = gtf_df[gtf_df["feature"] == "transcript"].copy()
+    transcript_df = transcript_df.drop_duplicates(subset="transcript_ID", keep="first")
+
+    five_prime_lengths = []
+    three_prime_lengths = []
+    transcript_lengths = []
+    for transcript_id in tqdm(transcript_df["transcript_ID"], desc="Calculating transcript lengths", unit="transcripts", total=len(transcript_df)):
+        specific_transcript_df = gtf_df.loc[gtf_df["transcript_ID"] == transcript_id].copy()
+        five_sum = specific_transcript_df[(specific_transcript_df["feature"] == "five_prime_utr")]["region_length"].sum()
+        three_sum = specific_transcript_df[(specific_transcript_df["feature"] == "three_prime_utr")]["region_length"].sum()
+        exon_sum = specific_transcript_df[(specific_transcript_df["feature"] == "exon")]["region_length"].sum()
+        transcript_length = five_sum + three_sum + exon_sum
+
+        five_prime_lengths.append(five_sum)
+        three_prime_lengths.append(three_sum)
+        transcript_lengths.append(transcript_length)
+    transcript_df["five_prime_utr_length"] = five_prime_lengths
+    transcript_df["three_prime_utr_length"] = three_prime_lengths
+    transcript_df["transcript_length"] = transcript_lengths
+
+    transcript_df["utr_length_preceding_transcript"] = transcript_df.apply(
+        lambda row: row["three_prime_utr_length"] if row["strand"] == "-" else row["five_prime_utr_length"],
+        axis=1
+    )
+
+    return gtf_df, transcript_df
+
+
+def convert_vcf_samples_to_anndata(vcf_path, adata_out=None, sample_titles_set=None, total=None):
+    from cyvcf2 import VCF
+
+    vcf = VCF(vcf_path)
+
+    sample_names = vcf.samples
+    n_samples = len(sample_names)
+
+    if sample_titles_set:
+        sample_indices_to_keep_set = {i for i, name in enumerate(sample_names) if name in sample_titles_set}
+    else:
+        sample_indices_to_keep_set = set(range(n_samples))
+
+    # Store sparse matrix data
+    data = []
+    rows = []
+    cols = []
+    variant_ids = []
+    has_id = []
+
+    for var_idx, variant in tqdm(enumerate(vcf), desc="Processing VCF", unit="variants", total=total):
+        genotypes = variant.genotypes  # List of [GT1, GT2, phased, ...]
+        if not genotypes or len(genotypes) != n_samples:
+            continue  # Skip malformed rows
+
+        sample_idx_for_row = 0
+        for sample_idx, gt in enumerate(genotypes):
+            if sample_idx not in sample_indices_to_keep_set:
+                continue
+            sample_idx_for_row += 1
             
-    #* Variant calling: varseek
-    if "varseek" in tools_to_benchmark and number_of_reads <= tools_read_counts_limit["varseek"]:
-        logger.info(f"varseek, {number_of_reads} reads")
-        script_title = f"varseek {number_of_reads} reads {threads} threads"
-        vk_count_out_tmp = os.path.join(tmp_dir, f"vk_count_{number_of_reads}_reads")
-        argparse_flags = f"--index {vk_ref_index_path} --t2g {vk_ref_t2g_path} --technology bulk --threads {threads} -k {k} --out {vk_count_out_tmp} --kb_count_reference_genome_out_dir {kb_count_reference_genome_out_dir} --reference_genome_index {reference_genome_index_path} --reference_genome_t2g {reference_genome_t2g_path} --disable_clean --disable_summarize --fastqs {fastq_output_path}"
-        print(f"python3 {vk_count_script_path} {argparse_flags}")
-        if not dry_run:
-            _ = report_time_and_memory_of_script(vk_count_script_path, output_file = output_file, argparse_flags = argparse_flags, script_title = script_title)
+            if gt[0] == -1 or gt[1] == -1:
+                continue  # missing
+            
+            gt_sum = gt[0] + gt[1]
+            rows.append(sample_idx)
+            cols.append(var_idx)
+            data.append(gt_sum)
 
-    #$ Best to leave commented out until I create an appropriate index (e.g., if I use an index with k=51 and run kb count with k=31, it'll take very long simply due to this discrepency)
-    # #* Variant calling: varseek with smaller k
-    # if "varseek" in tools_to_benchmark and os.path.isfile(vk_ref_small_k_index_path) and os.path.isfile(vk_ref_small_k_t2g_path) and number_of_reads <= tools_read_counts_limit["varseek"]:
-    #     logger.info(f"varseek k={k_small}, {number_of_reads} reads")
-    #     script_title = f"varseek_k={k_small} {number_of_reads} reads {threads} threads"
-    #     vk_count_out_tmp = os.path.join(tmp_dir, f"vk_count_k{k_small}_reads_{number_of_reads}_out")
-    #     argparse_flags = f"--index {vk_ref_small_k_index_path} --t2g {vk_ref_small_k_t2g_path} --technology bulk --threads {threads} -k {k_small} --out {vk_count_out_tmp} -k {k_small} --kb_count_reference_genome_out_dir {kb_count_reference_genome_out_dir} --disable_clean --disable_summarize --fastqs {fastq_output_path}"
-    #     print(f"python3 {vk_count_script_path} {argparse_flags}")
-    #     if not dry_run:
-    #         _ = report_time_and_memory_of_script(vk_count_script_path, output_file = output_file, argparse_flags = argparse_flags, script_title = script_title)
+        if variant.ID:
+            variant_ids.append(variant.ID)
+            has_id.append(True)
+        else:
+            variant_ids.append(f"temp_{var_idx}")
+            has_id.append(False)
 
-    if any(tool in tools_that_require_star_alignment for tool in tools_to_benchmark):
-        #* STAR alignment
-        star_alignment_dir = os.path.join(tmp_dir, f"star_alignment_dir_{number_of_reads}")
-        out_file_name_prefix = f"{star_alignment_dir}/sample_"
-        aligned_and_unmapped_bam = f"{out_file_name_prefix}Aligned.sortedByCoord.out.bam"
-        star_align_command = [
-            STAR,
-            "--runThreadN", str(threads),
-            "--genomeDir", star_genome_dir,
-            "--readFilesIn", fastq_output_path,
-            "--sjdbOverhang", str(read_length_minus_one),
-            "--outFileNamePrefix", out_file_name_prefix,
-            "--outSAMtype", "BAM", "SortedByCoordinate",
-            "--outSAMunmapped", "Within",
-            "--outSAMmapqUnique", "60",
-            "--twopassMode", "Basic"
-        ]
+    # Create sparse matrix (samples x variants)
+    X = sp.csr_matrix((data, (rows, cols)), shape=(n_samples, len(variant_ids)))
 
-        if not os.path.isfile(aligned_and_unmapped_bam):
-            logger.info(f"STAR alignment, {number_of_reads} reads")
-            script_title = f"STAR alignment {number_of_reads} reads {threads} threads"
-            _ = report_time_and_memory_of_script(subprocess_script_path, output_file = star_output_file, argparse_flags = f'"{str(star_align_command)}"', script_title = script_title)
+    # Build obs and var
+    obs = pd.DataFrame(index=sample_names)
+    var = pd.DataFrame(index=variant_ids)
+    var["has_id"] = has_id
 
-        #* Index BAM file
-        bam_index_file = f"{aligned_and_unmapped_bam}.bai"
-        if not os.path.isfile(bam_index_file):
-            logger.info(f"BAM Indexing, {number_of_reads} reads, aligned and unmapped BAM (for GATK)")
-            start_time = time.perf_counter()
-            _ = pysam.index(aligned_and_unmapped_bam)
-            minutes, seconds = divmod(time.perf_counter() - start_time, 60)
-            with open(star_output_file, "a", encoding="utf-8") as f:
-                f.write(f"BAM indexing runtime (aligned and unmapped, for GATK) for {number_of_reads} reads: {minutes} minutes, {seconds} seconds\n")
-        
-        #* Filter out unmapped reads (for non-GATK pipelines)
-        aligned_bam = f"{out_file_name_prefix}Aligned.sortedByCoord.aligned_only.bam"
-        if not os.path.isfile(aligned_bam):
-            logger.info(f"Filter out umapped reads for non-GATK pipelines, {number_of_reads} reads (because I could have simply run STAR without keeping unmapped reads, I should not count this against the other pipelines when considering total runtime)")
-            filter_command = f"samtools view -b -F 4 {aligned_and_unmapped_bam} > {aligned_bam}"
-            elapsed_time = run_command_with_error_logging(filter_command, track_time=True)
-        
-        aligned_bam_index_file = f"{aligned_bam}.bai"
-        if not os.path.isfile(aligned_bam_index_file):
-            logger.info(f"BAM Indexing, {number_of_reads} reads, aligned BAM only (for non-GATK)")
-            start_time = time.perf_counter()
-            _ = pysam.index(aligned_bam)
-            minutes, seconds = divmod(time.perf_counter() - start_time, 60)
-            with open(star_output_file, "a", encoding="utf-8") as f:
-                f.write(f"BAM indexing runtime (aligned-only, for non-GATK) for {number_of_reads} reads: {minutes} minutes, {seconds} seconds\n")
+    # Create AnnData
+    adata = ad.AnnData(X=X, obs=obs, var=var)
+    if adata_out is None:
+        adata_out = re.sub(r'\.vcf(?:\.gz)?$', '.h5ad', vcf_path)
+    adata.write_h5ad(adata_out)
+    return adata
+
+
+human_chromosomes = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "X", "Y", "MT"}
+
+def make_chrom_to_positions_dict(gtf):
+    if isinstance(gtf, (str, Path)) and ".gtf" in gtf:
+        gtf_cols = ["chromosome", "source", "feature", "start", "end", "score", "strand", "frame", "attributes"]
+        gtf_df = pd.read_csv(gtf, sep="\t", comment="#", names=gtf_cols)
+    elif isinstance(gtf, pd.DataFrame):
+        gtf_df = gtf.copy()
+    else:
+        raise ValueError("gtf must be a df or path to gtf file") 
+
+    gtf_df["chromosome"] = gtf_df["chromosome"].astype(str)
+    gtf_df = gtf_df.loc[(gtf_df['feature'] == "exon") & (gtf_df['chromosome'].isin(human_chromosomes)), ["chromosome", "start", "end"]].reset_index(drop=True)
+
+    chrom_to_positions: dict[str, list[tuple[int, int]]] = defaultdict(list)
+    for chromosome, start, end in tqdm(zip(gtf_df["chromosome"], gtf_df["start"], gtf_df["end"]), total=len(gtf_df), desc="Looping through exons"):
+        chrom_to_positions[str(chromosome)].append((int(start), int(end)))
     
-    if "gatk_haplotypecaller" in tools_to_benchmark and number_of_reads <= tools_read_counts_limit["gatk_haplotypecaller"]:
-        #* Variant calling: GATK HaplotypeCaller
-        logger.info(f"GATK HaplotypeCaller, {number_of_reads} reads")
-        script_title = f"gatk_haplotypecaller {number_of_reads} reads {threads} threads"
-        gatk_parent_haplotypecaller = os.path.join(tmp_dir, f"gatk_haplotypecaller_{number_of_reads}_reads")
-        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --genomes1000_vcf {genomes1000_vcf} --star_genome_dir {star_genome_dir} --aligned_and_unmapped_bam {aligned_and_unmapped_bam} --out {gatk_parent_haplotypecaller} --threads {threads} --read_length {read_length} --STAR {STAR} --java {java} --picard_jar {picard_jar} --gatk {gatk} --skip_accuracy_analysis"
-        print(f"python3 {gatk_haplotypecaller_script_path} {argparse_flags}")
-        if not dry_run:
-            _ = report_time_and_memory_of_script(gatk_haplotypecaller_script_path, output_file = output_file, argparse_flags = argparse_flags, script_title = script_title)
+    return chrom_to_positions
 
-    if "gatk_mutect2" in tools_to_benchmark and number_of_reads <= tools_read_counts_limit["gatk_mutect2"]:
-        #* Variant calling: GATK Mutect2
-        logger.info(f"GATK Mutect2, {number_of_reads} reads")
-        script_title = f"gatk_mutect2 {number_of_reads} reads {threads} threads"
-        gatk_parent_mutect2 = os.path.join(tmp_dir, f"gatk_mutect2_{number_of_reads}_reads")
-        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --genomes1000_vcf {genomes1000_vcf} --star_genome_dir {star_genome_dir} --aligned_and_unmapped_bam {aligned_and_unmapped_bam} --out {gatk_parent_mutect2} --threads {threads} --read_length {read_length} --STAR {STAR} --java {java} --picard_jar {picard_jar} --gatk {gatk} --skip_accuracy_analysis"
-        print(f"python3 {gatk_mutect2_script_path} {argparse_flags}")
-        if not dry_run:
-            _ = report_time_and_memory_of_script(gatk_mutect2_script_path, output_file = output_file, argparse_flags = argparse_flags, script_title = script_title)
+def determine_if_position_is_in_exon(position: int, starts: list[int], ends: list[int]) -> bool:
+    # # ranges must be sorted by start and non-overlapping
+    # starts = [start for start, _ in ranges]
+    # ends = [end for _, end in ranges]
 
-    if "strelka2" in tools_to_benchmark and number_of_reads <= tools_read_counts_limit["strelka2"]:
-        #* Variant calling: Strelka2
-        logger.info(f"Strelka2, {number_of_reads} reads")
-        script_title = f"strelka2 {number_of_reads} reads {threads} threads"
-        strelka2_output_dir = os.path.join(tmp_dir, f"strelka2_simulated_data_dir_{number_of_reads}_reads")
-        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --aligned_bam {aligned_bam} --out {strelka2_output_dir} --threads {threads} --read_length {read_length} --STRELKA_INSTALL_PATH {STRELKA_INSTALL_PATH} --python2_env {python2_env} --skip_accuracy_analysis"
-        print(f"python3 {strelka_script_path} {argparse_flags}")
-        if not dry_run:
-            _ = report_time_and_memory_of_script(strelka_script_path, output_file = output_file, argparse_flags = argparse_flags, script_title = script_title)
+    idx = bisect.bisect_right(starts, position) - 1
+    in_range = idx >= 0 and position <= ends[idx]
+    return in_range
+    
 
-    if "varscan" in tools_to_benchmark and number_of_reads <= tools_read_counts_limit["varscan"]:
-        #* Variant calling: VarScan
-        logger.info(f"VarScan, {number_of_reads} reads")
-        script_title = f"varscan {number_of_reads} reads {threads} threads"
-        varscan_output_dir = os.path.join(tmp_dir, f"varscan_simulated_data_dir_{number_of_reads}_reads")
-        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --aligned_bam {aligned_bam} --out {varscan_output_dir} --threads {threads} --read_length {read_length} --VARSCAN_INSTALL_PATH {VARSCAN_INSTALL_PATH} --reference_genome_gtf_cleaned {reference_genome_gtf_cleaned} --skip_accuracy_analysis"
-        if exons_bed:
-            argparse_flags += f" --exons_bed {exons_bed}"
-        print(f"python3 {varscan_script_path} {argparse_flags}")
-        if not dry_run:
-            _ = report_time_and_memory_of_script(varscan_script_path, output_file = output_file, argparse_flags = argparse_flags, script_title = script_title)
+def keep_only_exons_in_vcf(vcf, gtf, vcf_out=None, total=None):
+    chrom_to_positions = make_chrom_to_positions_dict(gtf)
+    starts, ends = {}, {}
+    for chrom in chrom_to_positions:
+        starts[chrom] = [start for start, _ in chrom_to_positions[chrom]]
+        ends[chrom] = [end for _, end in chrom_to_positions[chrom]]
 
-    if "deepvariant" in tools_to_benchmark and number_of_reads <= tools_read_counts_limit["deepvariant"]:
-        #* Variant calling: Deepvariant
-        logger.info(f"Deepvariant, {number_of_reads} reads")
-        script_title = f"deepvariant {number_of_reads} reads {threads} threads"
-        deepvariant_output_dir = os.path.join(tmp_dir, f"deepvariant_simulated_data_dir_{number_of_reads}_reads")
-        argparse_flags = f"--synthetic_read_fastq {fastq_output_path} --reference_genome_fasta {reference_genome_fasta} --reference_genome_gtf {reference_genome_gtf} --star_genome_dir {star_genome_dir} --threads {threads} --read_length {read_length} --out {deepvariant_output_dir} --aligned_bam {aligned_bam} --model_dir {deepvariant_model} --threads {threads} --read_length {read_length} --skip_accuracy_analysis"
-        print(f"python3 {deepvariant_script_path} {argparse_flags}")
-        if not dry_run:
-            _ = report_time_and_memory_of_script(deepvariant_script_path, output_file = output_file, argparse_flags = argparse_flags, script_title = script_title)
+    # Iterate and write only if in exon
+    with pysam.VariantFile(vcf, "r") as in_vcf, pysam.VariantFile(vcf_out, "wz", header=in_vcf.header) as out_vcf:
 
-# delete tmp directory
-# os.system(f"rm -rf {tmp_dir}")  #!!! uncomment later to delete tmp directory
+        for record in tqdm(in_vcf.fetch(), total=total, desc="Looping through vcf"):
+            try:
+                chrom = str(record.chrom)
+                pos = record.pos  # 1-based
+                if determine_if_position_is_in_exon(pos, starts[chrom], ends[chrom]):
+                    out_vcf.write(record)
+            except Exception as e:
+                continue
+
+#* Helper functions for extracting transcriptome variants using dbSNP IDs
+def chunks(lst, n):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
+
+def add_to_hgvsc_dict(response, hgvsc_to_dbsnp_dict=None, ids_not_correctly_recorded=None):
+    if hgvsc_to_dbsnp_dict is None:
+        hgvsc_to_dbsnp_dict = {}
+    if ids_not_correctly_recorded is None:
+        ids_not_correctly_recorded = set()
+    
+    for entry in response.json():
+        dbsnp_id = entry.get("id")  # This assumes the response includes the original id
+        # dbsnp_id_added = False
+        # Iterate through transcript consequences to find the HGVSC notation
+        for tx in entry.get("transcript_consequences", []):
+            if "hgvsc" in tx:
+                hgvsc = tx["hgvsc"]
+                # Optionally, filter out entries with particular unwanted annotations
+                if ":n." in hgvsc or "-" in hgvsc or "+" in hgvsc or "*" in hgvsc:
+                    continue
+                hgvsc_to_dbsnp_dict[hgvsc] = dbsnp_id
+                # dbsnp_id_added = True
+        # if not dbsnp_id_added:  # don't add these - if their dbsnp ID is queries but returns no HGVSC, then it doesn't exist - well technically, some may exist, but most won't, and the computational time will be expensive
+        #     ids_not_correctly_recorded.add(dbsnp_id)
+
+    return hgvsc_to_dbsnp_dict, ids_not_correctly_recorded
+
+def make_hgvsc_to_dbsnp_dict_from_vep_vcf(vcf_path, total_entries=None):
+    import pysam
+    # Open VCF
+    vcf_in = pysam.VariantFile(vcf_path)
+
+    # Get CSQ format fields from VEP header
+    csq_format_str = vcf_in.header.info["CSQ"].description.split("Format: ")[1]
+    csq_fields = csq_format_str.strip().split('|')
+
+    # Index of HGVSc in the CSQ fields
+    hgvsc_index = csq_fields.index("HGVSc")
+
+    hgvsc_to_dbsnp_dict = {}
+    rsids_without_valid_hgvsc = set()
+    for rec in tqdm(vcf_in.fetch(), total=total_entries):
+        rsid = rec.id
+        if not rsid or 'CSQ' not in rec.info:
+            continue
+        csq_entries = rec.info["CSQ"]
+        found_valid_hgvsc = False
+        for entry in csq_entries:
+            parts = entry.split('|')
+            if len(parts) > hgvsc_index:
+                hgvsc = parts[hgvsc_index]
+                if hgvsc:
+                    if ":n." in hgvsc or "-" in hgvsc or "+" in hgvsc or "*" in hgvsc:
+                        # Skip non-coding or non-standard HGVSc
+                        continue
+                    hgvsc_to_dbsnp_dict[hgvsc] = rsid
+                    found_valid_hgvsc = True
+        if not found_valid_hgvsc:
+            rsids_without_valid_hgvsc.add(rsid)
+    
+    return hgvsc_to_dbsnp_dict, rsids_without_valid_hgvsc

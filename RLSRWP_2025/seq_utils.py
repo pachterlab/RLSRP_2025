@@ -4,6 +4,7 @@ import scanpy as sc
 import scipy.sparse as sp
 import networkx as nx
 
+from tqdm import tqdm
 import numpy as np
 import pandas as pd
 import anndata as ad
@@ -12,6 +13,10 @@ import re
 import scanpy as sc
 from sklearn.metrics import euclidean_distances
 from sklearn.neighbors import NearestNeighbors
+from pathlib import Path
+from collections import defaultdict
+import bisect
+import pysam
 
 from RLSRWP_2025.visualization_utils import (
     plot_ascending_bar_plot_of_cluster_distances,
@@ -421,14 +426,14 @@ def create_mutated_gene_count_matrix_from_mutation_count_matrix(adata, sum_strat
     return adata_gene
 
 
-def perform_analysis(vcf_file, unique_mcrs_df_path, cosmic_df, plot_output_folder = "plots", unique_mcrs_df_path_out = None, package_name = "tool"):
+def perform_analysis(vcf_file, unique_mcrs_df_path, cosmic_df, plot_output_folder = "plots", unique_mcrs_df_path_out = None, package_name = "tool", dp_column="INFO_DP"):
     if not unique_mcrs_df_path_out:
         unique_mcrs_df_path_out = unique_mcrs_df_path
 
     #* Merging into COSMIC
     # Convert VCF to DataFrame
     df_tool = vcf_to_dataframe(vcf_file, additional_columns = True)
-    df_tool = df_tool[['CHROM', 'POS', 'ID', 'REF', 'ALT', 'INFO_DP']].rename(columns={'INFO_DP': f'DP_{package_name}'})
+    df_tool = df_tool[['CHROM', 'POS', 'ID', 'REF', 'ALT', dp_column]].rename(columns={dp_column: f'DP_{package_name}'})
 
     # load in unique_mcrs_df
     unique_mcrs_df = pd.read_csv(unique_mcrs_df_path)
@@ -509,6 +514,7 @@ def make_transcript_df_from_gtf(gtf):
         gtf_df = gtf.copy()
     else:
         raise ValueError("gtf must be a path to a GTF file or a pandas DataFrame")
+    gtf_df["chromosome"] = gtf_df["chromosome"].astype(str)  # otherwise parquet might infer integer and throw error when saving
     gtf_df["region_length"] = gtf_df["end"] - gtf_df["start"] + 1  # this corresponds to the unspliced transcript length, NOT the spliced transcript/CDS length (which is what I care about)
     gtf_df["transcript_ID"] = gtf_df["attributes"].str.extract(r'transcript_id "([^"]+)"')
     transcript_df = gtf_df[gtf_df["feature"] == "transcript"].copy()
@@ -517,7 +523,7 @@ def make_transcript_df_from_gtf(gtf):
     five_prime_lengths = []
     three_prime_lengths = []
     transcript_lengths = []
-    for transcript_id in transcript_df["transcript_ID"]:
+    for transcript_id in tqdm(transcript_df["transcript_ID"], desc="Calculating transcript lengths", unit="transcripts", total=len(transcript_df)):
         specific_transcript_df = gtf_df.loc[gtf_df["transcript_ID"] == transcript_id].copy()
         five_sum = specific_transcript_df[(specific_transcript_df["feature"] == "five_prime_utr")]["region_length"].sum()
         three_sum = specific_transcript_df[(specific_transcript_df["feature"] == "three_prime_utr")]["region_length"].sum()
@@ -527,8 +533,8 @@ def make_transcript_df_from_gtf(gtf):
         five_prime_lengths.append(five_sum)
         three_prime_lengths.append(three_sum)
         transcript_lengths.append(transcript_length)
-    transcript_df["five_prime_length"] = five_prime_lengths
-    transcript_df["three_prime_length"] = three_prime_lengths
+    transcript_df["five_prime_utr_length"] = five_prime_lengths
+    transcript_df["three_prime_utr_length"] = three_prime_lengths
     transcript_df["transcript_length"] = transcript_lengths
 
     transcript_df["utr_length_preceding_transcript"] = transcript_df.apply(
@@ -599,3 +605,117 @@ def convert_vcf_samples_to_anndata(vcf_path, adata_out=None, sample_titles_set=N
         adata_out = re.sub(r'\.vcf(?:\.gz)?$', '.h5ad', vcf_path)
     adata.write_h5ad(adata_out)
     return adata
+
+
+human_chromosomes = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "X", "Y", "MT"}
+
+def make_chrom_to_positions_dict(gtf):
+    if isinstance(gtf, (str, Path)) and ".gtf" in gtf:
+        gtf_cols = ["chromosome", "source", "feature", "start", "end", "score", "strand", "frame", "attributes"]
+        gtf_df = pd.read_csv(gtf, sep="\t", comment="#", names=gtf_cols)
+    elif isinstance(gtf, pd.DataFrame):
+        gtf_df = gtf.copy()
+    else:
+        raise ValueError("gtf must be a df or path to gtf file") 
+
+    gtf_df["chromosome"] = gtf_df["chromosome"].astype(str)
+    gtf_df = gtf_df.loc[(gtf_df['feature'] == "exon") & (gtf_df['chromosome'].isin(human_chromosomes)), ["chromosome", "start", "end"]].reset_index(drop=True)
+
+    chrom_to_positions: dict[str, list[tuple[int, int]]] = defaultdict(list)
+    for chromosome, start, end in tqdm(zip(gtf_df["chromosome"], gtf_df["start"], gtf_df["end"]), total=len(gtf_df), desc="Looping through exons"):
+        chrom_to_positions[str(chromosome)].append((int(start), int(end)))
+    
+    return chrom_to_positions
+
+def determine_if_position_is_in_exon(position: int, starts: list[int], ends: list[int]) -> bool:
+    # # ranges must be sorted by start and non-overlapping
+    # starts = [start for start, _ in ranges]
+    # ends = [end for _, end in ranges]
+
+    idx = bisect.bisect_right(starts, position) - 1
+    in_range = idx >= 0 and position <= ends[idx]
+    return in_range
+    
+
+def keep_only_exons_in_vcf(vcf, gtf, vcf_out=None, total=None):
+    chrom_to_positions = make_chrom_to_positions_dict(gtf)
+    starts, ends = {}, {}
+    for chrom in chrom_to_positions:
+        starts[chrom] = [start for start, _ in chrom_to_positions[chrom]]
+        ends[chrom] = [end for _, end in chrom_to_positions[chrom]]
+
+    # Iterate and write only if in exon
+    with pysam.VariantFile(vcf, "r") as in_vcf, pysam.VariantFile(vcf_out, "wz", header=in_vcf.header) as out_vcf:
+
+        for record in tqdm(in_vcf.fetch(), total=total, desc="Looping through vcf"):
+            try:
+                chrom = str(record.chrom)
+                pos = record.pos  # 1-based
+                if determine_if_position_is_in_exon(pos, starts[chrom], ends[chrom]):
+                    out_vcf.write(record)
+            except Exception as e:
+                continue
+
+#* Helper functions for extracting transcriptome variants using dbSNP IDs
+def chunks(lst, n):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
+
+def add_to_hgvsc_dict(response, hgvsc_to_dbsnp_dict=None, ids_not_correctly_recorded=None):
+    if hgvsc_to_dbsnp_dict is None:
+        hgvsc_to_dbsnp_dict = {}
+    if ids_not_correctly_recorded is None:
+        ids_not_correctly_recorded = set()
+    
+    for entry in response.json():
+        dbsnp_id = entry.get("id")  # This assumes the response includes the original id
+        # dbsnp_id_added = False
+        # Iterate through transcript consequences to find the HGVSC notation
+        for tx in entry.get("transcript_consequences", []):
+            if "hgvsc" in tx:
+                hgvsc = tx["hgvsc"]
+                # Optionally, filter out entries with particular unwanted annotations
+                if ":n." in hgvsc or "-" in hgvsc or "+" in hgvsc or "*" in hgvsc:
+                    continue
+                hgvsc_to_dbsnp_dict[hgvsc] = dbsnp_id
+                # dbsnp_id_added = True
+        # if not dbsnp_id_added:  # don't add these - if their dbsnp ID is queries but returns no HGVSC, then it doesn't exist - well technically, some may exist, but most won't, and the computational time will be expensive
+        #     ids_not_correctly_recorded.add(dbsnp_id)
+
+    return hgvsc_to_dbsnp_dict, ids_not_correctly_recorded
+
+def make_hgvsc_to_dbsnp_dict_from_vep_vcf(vcf_path, total_entries=None):
+    import pysam
+    # Open VCF
+    vcf_in = pysam.VariantFile(vcf_path)
+
+    # Get CSQ format fields from VEP header
+    csq_format_str = vcf_in.header.info["CSQ"].description.split("Format: ")[1]
+    csq_fields = csq_format_str.strip().split('|')
+
+    # Index of HGVSc in the CSQ fields
+    hgvsc_index = csq_fields.index("HGVSc")
+
+    hgvsc_to_dbsnp_dict = {}
+    rsids_without_valid_hgvsc = set()
+    for rec in tqdm(vcf_in.fetch(), total=total_entries):
+        rsid = rec.id
+        if not rsid or 'CSQ' not in rec.info:
+            continue
+        csq_entries = rec.info["CSQ"]
+        found_valid_hgvsc = False
+        for entry in csq_entries:
+            parts = entry.split('|')
+            if len(parts) > hgvsc_index:
+                hgvsc = parts[hgvsc_index]
+                if hgvsc:
+                    if ":n." in hgvsc or "-" in hgvsc or "+" in hgvsc or "*" in hgvsc:
+                        # Skip non-coding or non-standard HGVSc
+                        continue
+                    hgvsc_to_dbsnp_dict[hgvsc] = rsid
+                    found_valid_hgvsc = True
+        if not found_valid_hgvsc:
+            rsids_without_valid_hgvsc.add(rsid)
+    
+    return hgvsc_to_dbsnp_dict, rsids_without_valid_hgvsc

@@ -15,7 +15,7 @@ project_name_to_sra_link_dict = {
 script_dir = os.path.dirname(os.path.abspath(__file__))
 data_dir = os.path.join(os.path.dirname(script_dir), "data")
 vk_count_out_dir = os.path.join(data_dir, "vk_count_out_fig1")
-kb_count_reference_genome_dir = os.path.join(data_dir, "vk_count_out_reference_genome_fig1")
+kb_count_reference_genome_dir = os.path.join(vk_count_out_dir, "kb_count_out_reference_genome")
 reference_out_dir = os.path.join(data_dir, "reference")
 
 project_name = "PRJNA330719"  # "PRJNA330719", "PRJNA603103", "PRJNA603104"
@@ -49,7 +49,7 @@ reference_genome_fasta = os.path.join(reference_out_dir, "ensembl_grch37_release
 reference_genome_gtf = os.path.join(reference_out_dir, "ensembl_grch37_release93", "Homo_sapiens.GRCh37.87.gtf")  # can either already exist or will be downloaded; only used if qc_against_gene_matrix=True
 
 # clean
-qc_against_gene_matrix = True
+qc_against_gene_matrix = False
 save_vcf = True
 vcf_out = os.path.join(vk_count_out_dir, "variants.vcf")
 
@@ -143,7 +143,9 @@ if not os.path.exists(adata_cleaned_out) or overwrite_vk_count:
         seq_id_column=seq_id_column,
         var_column=var_column,
         gene_id_column=gene_id_column,
-        variants_usecols=variants_usecols
+        variants_usecols=variants_usecols,
+        disable_clean=True,
+        disable_summarize=True
     )
 
 if save_vcf and maf_out is not None:

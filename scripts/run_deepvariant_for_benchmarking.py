@@ -75,14 +75,25 @@ aligned_bam = f"{out_file_name_prefix}Aligned.sortedByCoord.out.bam" if not alig
 output_dir = os.path.join(deepvariant_output_dir, "vcf_output")
 os.makedirs(output_dir, exist_ok=True)
 
-deepvariant_vcf = os.path.join(output_dir, "out.vcf.gz")
+deepvariant_vcf = os.path.join(output_dir, "deepvariant_variants.vcf.gz")  # out.vcf.gz
+
+plot_output_folder = f"{deepvariant_output_dir}/plots"
+os.makedirs(plot_output_folder, exist_ok=True)
 
 intermediate_results = os.path.join(deepvariant_output_dir, "intermediate_results_dir")
 os.makedirs(intermediate_results, exist_ok=True)
 above_min_coverage_bed_file = os.path.join(intermediate_results, "above_min_coverage.bed")  # used in run_bedtools.sh
 
-reference_genome_fasta_directory = os.path.dirname(reference_genome_fasta) if reference_genome_fasta[0] == "/" else os.getcwd()
-deepvariant_model_directory = os.path.dirname(deepvariant_model) if deepvariant_model[0] == "/" else os.getcwd()
+if reference_genome_fasta[0] == "/":
+    reference_genome_fasta_directory = os.path.dirname(reference_genome_fasta)
+else:
+    reference_genome_fasta_directory = os.getcwd()
+    reference_genome_fasta = os.path.join(reference_genome_fasta_directory, reference_genome_fasta)
+if reference_genome_fasta[0] == "/":
+    deepvariant_model_directory = os.path.dirname(deepvariant_model)
+else:
+    deepvariant_model_directory = os.getcwd()
+    deepvariant_model = os.path.join(deepvariant_model_directory, deepvariant_model)
 
 for name, path in {"STAR": STAR}.items():
     if not os.path.exists(path) and not shutil.which(path):
@@ -153,7 +164,7 @@ generate_3x_coverage_files = [
     f"{intermediate_results}/data_coverage",
     aligned_bam
 ]
-if min_coverage > 1:
+if min_coverage > 1 and not os.path.isfile(above_min_coverage_bed_file):
     run_command_with_error_logging(generate_3x_coverage_files)
     run_command_with_error_logging(["bash", f"{scripts_dir}/run_bedtools.sh", intermediate_results, str(min_coverage)])
 
@@ -200,7 +211,9 @@ for directory in directories_to_mount:
 
 if min_coverage > 1 and os.path.isfile(above_min_coverage_bed_file):
     deepvariant_command.insert(-4, f"--regions={above_min_coverage_bed_file}")
-run_command_with_error_logging(deepvariant_command)
+
+if not os.path.isfile(deepvariant_vcf):
+    run_command_with_error_logging(deepvariant_command)
 
 if skip_accuracy_analysis:
     print("Skipping accuracy analysis")
@@ -213,4 +226,4 @@ else:
     cosmic_df = pd.read_csv(cosmic_df_out)
 
 vcf_file = deepvariant_vcf
-perform_analysis(vcf_file=vcf_file, unique_mcrs_df_path=unique_mcrs_df_path, cosmic_df=cosmic_df, plot_output_folder=deepvariant_output_dir, package_name="deepvariant")
+perform_analysis(vcf_file=vcf_file, unique_mcrs_df_path=unique_mcrs_df_path, cosmic_df=cosmic_df, plot_output_folder=plot_output_folder, package_name="deepvariant", dp_column="default_DP")

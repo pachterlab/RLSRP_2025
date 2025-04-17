@@ -15,5 +15,6 @@ dependencies:
   - seqtk>=1.4
   - bioconductor-maftools>=2.6.05
   - gffread>=0.12.7
+  - bedtools>=
   - pip:
       - .  # . installs varseek from pyproject.toml

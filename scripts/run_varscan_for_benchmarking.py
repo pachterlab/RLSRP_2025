@@ -74,7 +74,9 @@ alignment_folder = f"{varscan_output_dir}/alignment"
 out_file_name_prefix = f"{alignment_folder}/sample_"
 aligned_bam = f"{out_file_name_prefix}Aligned.sortedByCoord.out.bam" if not aligned_bam else aligned_bam
 data_pileup_file = f"{varscan_output_dir}/simulated_data.pileup"
-vcf_file = f"{varscan_output_dir}/variants.vcf"
+vcf_file = f"{varscan_output_dir}/varscan_variants.vcf"  # variants.vcf
+plot_output_folder = f"{varscan_output_dir}/plots"
+os.makedirs(plot_output_folder, exist_ok=True)
 
 
 # commented out, as these should already be done prior to running this script
@@ -151,4 +153,4 @@ if not os.path.exists(cosmic_df_out):
     cosmic_df = add_vcf_info_to_cosmic_tsv(cosmic_tsv=cosmic_tsv, reference_genome_fasta=reference_genome_fasta, cosmic_df_out=cosmic_df_out, sequences="cdna", cosmic_version=cosmic_version)
 else:
     cosmic_df = pd.read_csv(cosmic_df_out)
-perform_analysis(vcf_file=vcf_file, unique_mcrs_df_path=unique_mcrs_df_path, cosmic_df=cosmic_df, plot_output_folder=varscan_output_dir, package_name = "varscan")
+perform_analysis(vcf_file=vcf_file, unique_mcrs_df_path=unique_mcrs_df_path, cosmic_df=cosmic_df, plot_output_folder=plot_output_folder, package_name = "varscan", dp_column="INFO_ADP")

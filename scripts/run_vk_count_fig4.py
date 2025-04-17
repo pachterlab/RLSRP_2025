@@ -45,9 +45,9 @@ geuvadis_true_vcf = f"{geuvadis_reference_variants_prefix}.vcf.gz"
 plink = "plink"
 
 # fastqpp
-quality_control_fastqs = True
-cut_front = True
-cut_tail = True
+quality_control_fastqs = False
+cut_front = False
+cut_tail = False
 
 # kb count, reference genome
 reference_genome_index = os.path.join(reference_out_dir, "ensembl_grch37_release113", "index.idx")  # can either already exist or will be created; only used if qc_against_gene_matrix=True
@@ -56,7 +56,7 @@ reference_genome_fasta = os.path.join(reference_out_dir, "ensembl_grch37_release
 reference_genome_gtf = os.path.join(reference_out_dir, "ensembl_grch37_release113", "Homo_sapiens.GRCh37.87.gtf")  # can either already exist or will be downloaded; only used if qc_against_gene_matrix=True
 
 # clean
-qc_against_gene_matrix = True
+qc_against_gene_matrix = False
 save_vcf = False
 
 # for qc_against_gene_matrix - same as from vk ref/build (not essential but speeds things up)
@@ -255,7 +255,9 @@ def download_sequencing_total(
             gene_id_column=gene_id_column,
             variants_usecols=variants_usecols,
             add_hgvs_breakdown_to_adata_var=add_hgvs_breakdown_to_adata_var,
-            vcrs_metadata_df=vcrs_metadata_df
+            vcrs_metadata_df=vcrs_metadata_df,
+            disable_clean=True,
+            disable_summarize=True,
         )
 
         print(f"Finished vk.count on {sample}")
