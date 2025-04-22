@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 import varseek as vk
+from RLSRWP_2025.constants import box_links_dict
 
 # more on the dataset: 
 #   PRJNA330719 (289.54GB for .sra files, 2.3T for .fastq files): https://www.ncbi.nlm.nih.gov/Traces/study/?query_key=4&WebEnv=MCID_67eecb767ec86104c28549e7&o=acc_s%3Aa  # find the GEO here: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE84465
@@ -29,7 +30,6 @@ vcrs_index = os.path.join(vk_ref_out, "vcrs_index.idx")
 vcrs_t2g = os.path.join(vk_ref_out, "vcrs_t2g_filtered.txt")
 w=47
 k=51
-dlist_reference_source = "t2t"
 
 # general vk count parameters
 fastqs_dir = os.path.join(data_dir, "glioblastoma_smartseq_fastq_data")  # for PRJNA330719; change for each run
@@ -108,7 +108,10 @@ if download_only:
 
 # check for VCRS reference files
 if not os.path.isdir(vk_ref_out) or len(os.listdir(vk_ref_out)) == 0:
-    vk.ref(variants="cosmic_cmc", sequences="cdna", w=w, k=k, out=vk_ref_out, dlist_reference_source=dlist_reference_source, download=True, index_out=vcrs_index, t2g_out=vcrs_t2g)
+    index_link, t2g_link = box_links_dict["cosmic_index"], box_links_dict["cosmic_t2g"]
+    vk.utils.download_box_url(index_link, output_file_name=vcrs_index)
+    vk.utils.download_box_url(t2g_link, output_file_name=vcrs_t2g)
+    # vk.ref(variants="cosmic_cmc", sequences="cdna", w=w, k=k, out=vk_ref_out, download=True, index_out=vcrs_index, t2g_out=vcrs_t2g)
     # alternatively, to build from scratch: subprocess.run([os.path.join(script_dir, "run_vk_ref.py")], check=True)
 
 # check for kb count reference genome files when needed in vk count (i.e., when qc_against_gene_matrix=True)

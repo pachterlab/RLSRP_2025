@@ -1,3 +1,26 @@
+box_links_dict = {
+    "cosmic_index": "",  # glioblastoma and CCLE - keep empty to follow COSMIC rules
+    "cosmic_t2g": "",  # glioblastoma and CCLE - keep empty to follow COSMIC rules
+    "glioblastoma_smartseq_adata_vcrs": "xxxxx",
+    "glioblastoma_smartseq_adata_reference_genome": "xxxxx",
+    "glioblastoma_smartseq_maf": "xxxxx",
+    "glioblastoma_smartseq_vcf": "xxxxx",
+    "ccle_50_adata_vcrs": "xxxxx",
+    "ccle_50_adata_reference_genome": "xxxxx",
+    "geuvadis_vcf": "xxxxxx",
+    "geuvadis_adata_genotype": "xxxxxx",
+    "geuvadis_index_w27_k31": "xxxxxx",
+    "geuvadis_t2g_w27_k31": "xxxxxx",
+    "geuvadis_index_w37_k41": "xxxxxx",
+    "geuvadis_t2g_w37_k41": "xxxxxx",
+    "geuvadis_index_w47_k51": "xxxxxx",
+    "geuvadis_t2g_w47_k51": "xxxxxx",
+    "geuvadis_adata_vcrs_w27_k31": "xxxxxx",
+    "geuvadis_adata_vcrs_w37_k41": "xxxxxx",
+    "geuvadis_adata_vcrs_w47_k51": "xxxxxx",
+    "geuvadis_adata_reference_genome": "xxxxxx",
+}
+
 # entex tissue, ccle primary_disease
 entex_to_ccle_map = {
     # "Peyer's patch": xxxxxxx,

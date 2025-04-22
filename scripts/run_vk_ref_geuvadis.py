@@ -4,12 +4,13 @@ import numpy as np
 import requests
 import anndata as ad
 import pickle
+from scipy.sparse import lil_matrix, csr_matrix
 from tqdm import tqdm
 import pandas as pd
 tqdm.pandas()
 import json
 import varseek as vk
-from varseek.utils import is_program_installed, vcf_to_dataframe, assign_transcript_and_cds, add_variant_type, reverse_complement, write_to_vcf, add_variant_type_column_to_vcf_derived_df, add_variant_column_to_vcf_derived_df
+from varseek.utils import is_program_installed, vcf_to_dataframe, assign_transcript_and_cds, add_variant_type, reverse_complement, write_to_vcf, add_variant_type_column_to_vcf_derived_df, add_variant_column_to_vcf_derived_df, convert_mutation_cds_locations_to_cdna
 from varseek.constants import mutation_pattern
 from RLSRWP_2025.seq_utils import make_transcript_df_from_gtf, convert_vcf_samples_to_anndata, keep_only_exons_in_vcf, chunks, add_to_hgvsc_dict, make_hgvsc_to_dbsnp_dict_from_vep_vcf
 
@@ -74,7 +75,7 @@ conda_environment = "vep113"
 vep_cache_dir = os.path.expanduser("~/.vep")
 geuvadis_preliminary_vep_vcf = f"{geuvadis_reference_variants_prefix}_preliminary.vep.vcf.gz"
 genome_fasta = os.path.join(ensembl_reference_files_dir, "Homo_sapiens.GRCh37.dna.primary_assembly.fa")
-gtf_path = os.path.join(ensembl_reference_files_dir, "Homo_sapiens.GRCh37.87.gtf")
+cds_path = os.path.join(ensembl_reference_files_dir, "Homo_sapiens.GRCh37.cds.all.fa")
 hgvsc_to_dbsnp_pkl_path = os.path.join(geuvadis_reference_files_dir, "hgvsc_to_dbsnp_dict_tmp.pkl")
 
 geuvadis_rna_json_file = os.path.join(geuvadis_reference_files_dir, "geuvadis_metadata.json")
@@ -94,6 +95,14 @@ os.makedirs(ensembl_reference_files_dir, exist_ok=True)
 if not os.path.exists(sequences):
     logger.info("Downloading cDNA sequences")
     gget_ref_command = ["gget", "ref", "-w", "cdna", "-r", "113", "--out_dir", ensembl_reference_files_dir, "-d", "human_grch37"]
+    subprocess.run(gget_ref_command, check=True)
+    unzip_command = ["gunzip", f"{sequences}.gz"]
+    subprocess.run(unzip_command, check=True)
+
+#* download CDS
+if not os.path.exists(cds_path):
+    logger.info("Downloading CDS sequences")
+    gget_ref_command = ["gget", "ref", "-w", "cds", "-r", "113", "--out_dir", ensembl_reference_files_dir, "-d", "human_grch37"]
     subprocess.run(gget_ref_command, check=True)
     unzip_command = ["gunzip", f"{sequences}.gz"]
     subprocess.run(unzip_command, check=True)
@@ -123,7 +132,7 @@ if not os.path.exists(geuvadis_preliminary_vcf):  # plink pseudo-VCF doesn't exi
     subprocess.run(plink_to_preliminary_vcf_command, check=True)
 
 if not os.path.exists(geuvadis_preliminary_vcf_exons_only):
-    keep_only_exons_in_vcf(vcf=geuvadis_preliminary_vcf, gtf=gtf_path, vcf_out=geuvadis_preliminary_vcf_exons_only, total=total_entries)
+    keep_only_exons_in_vcf(vcf=geuvadis_preliminary_vcf, gtf=reference_genome_gtf, vcf_out=geuvadis_preliminary_vcf_exons_only, total=total_entries)
 
 #* Make VCF index file
 if not os.path.exists(f"{geuvadis_preliminary_vcf_exons_only}.tbi"):
@@ -151,7 +160,7 @@ else:
     adata = ad.read_h5ad(geuvadis_genotype_preliminary_adata)
 
 #* Extract transcriptome variants using dbSNP IDs (dbSNP --> HGVSC) and GTF (HGVSC CDS --> cDNA)
-if not os.path.exists(variants):  # transcriptome variants don't exist
+if not os.path.exists(variants) or not os.path.exists(geuvadis_genotype_true_adata) or not os.path.exists(geuvadis_true_vcf):  # transcriptome variants don't exist
     # convert preliminary VCF to true VCF
     if not os.path.exists(geuvadis_preliminary_vcf_exons_only_df_path):
         logger.info("Making vcf dataframe")
@@ -204,9 +213,6 @@ if not os.path.exists(variants):  # transcriptome variants don't exist
     ids_not_correctly_recorded = set()
     chunk_size = 200
 
-    ids_list = variants_plink_df['ID'].tolist()
-    logger.info("Getting HGVSC from dbSNP IDs")
-
     saved_chunk_number = 0
     if os.path.isfile(hgvsc_to_dbsnp_pkl_path):
         logger.info("Loading saved HGVSC to dbSNP mapping from pickle file")
@@ -214,51 +220,60 @@ if not os.path.exists(variants):  # transcriptome variants don't exist
             hgvsc_to_dbsnp_dict = pickle.load(f)
         saved_chunk_number = hgvsc_to_dbsnp_dict["chunk"]
 
+    ids_list = variants_plink_df['ID'].tolist()
     num_chunks = (len(ids_list) + chunk_size - 1) // chunk_size
-    for chunk_number, ids_chunk in enumerate(tqdm(chunks(ids_list, chunk_size), total=num_chunks, desc="Processing batches")):  #* go through 200 at a time
-        if chunk_number <= saved_chunk_number:  #* skip already processed chunks
-            continue
-        
-        # Create the payload with the list of IDs and additional parameters (e.g., hgvs)
-        payload = {"ids": ids_chunk, "hgvs": 1}
-        
-        try:
-            response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=90)
-            response.raise_for_status()  # Raise an exception for HTTP errors
+    hgvsc_to_dbsnp_dict_alread_completed = hgvsc_to_dbsnp_dict.get("chunk", 0) == num_chunks-1
+    if not hgvsc_to_dbsnp_dict_alread_completed:
+        logger.info("Getting HGVSC from dbSNP IDs. Warning: This may take a while.")
+        for chunk_number, ids_chunk in enumerate(tqdm(chunks(ids_list, chunk_size), total=num_chunks, desc="Processing batches")):  #* go through 200 at a time
+            if chunk_number <= saved_chunk_number:  #* skip already processed chunks
+                continue
+            
+            # Create the payload with the list of IDs and additional parameters (e.g., hgvs)
+            payload = {"ids": ids_chunk, "hgvs": 1}
+            
+            try:
+                response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=90)
+                response.raise_for_status()  # Raise an exception for HTTP errors
 
-            hgvsc_to_dbsnp_dict, ids_not_correctly_recorded = add_to_hgvsc_dict(response, hgvsc_to_dbsnp_dict, ids_not_correctly_recorded)
-        except Exception as e:  #* go through 20 at a time
-            # print("Outer exception")
-            print(f"Entering subchunk for chunk {chunk_number}")
-            # If an error occurs, log all ids in the current chunk as not recorded
-            for ids_subchunk in list(chunks(ids_chunk, (chunk_size//10)+1)):
-                payload = {"ids": ids_subchunk, "hgvs": 1}
-                try:
-                    response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=60)
-                    response.raise_for_status()  # Raise an exception for HTTP errors
+                hgvsc_to_dbsnp_dict, ids_not_correctly_recorded = add_to_hgvsc_dict(response, hgvsc_to_dbsnp_dict, ids_not_correctly_recorded)
+            except Exception as e:  #* go through 20 at a time
+                # print("Outer exception")
+                print(f"Entering subchunk for chunk {chunk_number}")
+                # If an error occurs, log all ids in the current chunk as not recorded
+                for ids_subchunk in list(chunks(ids_chunk, (chunk_size//10)+1)):
+                    payload = {"ids": ids_subchunk, "hgvs": 1}
+                    try:
+                        response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=60)
+                        response.raise_for_status()  # Raise an exception for HTTP errors
 
-                    hgvsc_to_dbsnp_dict, ids_not_correctly_recorded = add_to_hgvsc_dict(response, hgvsc_to_dbsnp_dict, ids_not_correctly_recorded)
-                except Exception as e:  #* go through 1 at a time
-                    # print("Inner exception")
-                    if (chunk_size//10)+1 == 1:
-                        ids_not_correctly_recorded.add(ids_subchunk[0])  # both cases where there was no dbsnp ID at all, as well as any other causes of failure
-                    else:
-                        # If an error occurs, log all ids in the current chunk as not recorded
-                        for dbsnp_id in ids_chunk:
-                            # ids_not_correctly_recorded.add(dbsnp_id)
-                            try:
-                                url_single = f"{url}/{dbsnp_id}?hgvs=1"
-                                response = requests.get(url_single, headers=headers, timeout=10)
-                                response.raise_for_status()  # Raise an exception for HTTP errors
+                        hgvsc_to_dbsnp_dict, ids_not_correctly_recorded = add_to_hgvsc_dict(response, hgvsc_to_dbsnp_dict, ids_not_correctly_recorded)
+                    except Exception as e:  #* go through 1 at a time
+                        # print("Inner exception")
+                        if (chunk_size//10)+1 == 1:
+                            ids_not_correctly_recorded.add(ids_subchunk[0])  # both cases where there was no dbsnp ID at all, as well as any other causes of failure
+                        else:
+                            # If an error occurs, log all ids in the current chunk as not recorded
+                            for dbsnp_id in ids_chunk:
+                                # ids_not_correctly_recorded.add(dbsnp_id)
+                                try:
+                                    url_single = f"{url}/{dbsnp_id}?hgvs=1"
+                                    response = requests.get(url_single, headers=headers, timeout=10)
+                                    response.raise_for_status()  # Raise an exception for HTTP errors
 
-                                hgvsc_to_dbsnp_dict, ids_not_correctly_recorded = add_to_hgvsc_dict(response, hgvsc_to_dbsnp_dict, ids_not_correctly_recorded)
-                            except Exception as e:  #* give up
-                                ids_not_correctly_recorded.add(dbsnp_id)  # both cases where there was no dbsnp ID at all, as well as any other causes of failure
-        
-        if chunk_number % 100 == 0:
-            hgvsc_to_dbsnp_dict["chunk"] = chunk_number
-            with open(hgvsc_to_dbsnp_pkl_path, "wb") as f:
-                pickle.dump(hgvsc_to_dbsnp_dict, f)
+                                    hgvsc_to_dbsnp_dict, ids_not_correctly_recorded = add_to_hgvsc_dict(response, hgvsc_to_dbsnp_dict, ids_not_correctly_recorded)
+                                except Exception as e:  #* give up
+                                    ids_not_correctly_recorded.add(dbsnp_id)  # both cases where there was no dbsnp ID at all, as well as any other causes of failure
+            
+            if chunk_number % 100 == 0:
+                hgvsc_to_dbsnp_dict["chunk"] = chunk_number
+                with open(hgvsc_to_dbsnp_pkl_path, "wb") as f:
+                    pickle.dump(hgvsc_to_dbsnp_dict, f)
+
+        hgvsc_to_dbsnp_dict["chunk"] = num_chunks-1
+        with open(hgvsc_to_dbsnp_pkl_path, "wb") as f:
+            pickle.dump(hgvsc_to_dbsnp_dict, f)
+    hgvsc_to_dbsnp_dict.pop("chunk", None)
 
     variants_plink_df_subset = None
     if ids_not_correctly_recorded:
@@ -307,136 +322,164 @@ if not os.path.exists(variants):  # transcriptome variants don't exist
     #         variants_plink_df_subset = variants_plink_df_subset.rename(columns={"ID": "dbsnp_id"})
     # del variants_plink_df
 
-    logger.info("Creating hgvs_df")
-    hgvs_df = pd.DataFrame(
-        [(v, k) for k, v in hgvsc_to_dbsnp_dict.items()],
-        columns=['dbsnp_id', 'variant_header']
-    )
-    
-    if variants_plink_df_subset is not None and len(variants_plink_df_subset) > 0:
-        hgvs_df = pd.concat([hgvs_df, variants_plink_df_subset], ignore_index=True)  # add the ones not correctly recorded
-        del variants_plink_df_subset
+    if not os.path.exists(variants):
+        logger.info("Creating hgvs_df")
+        hgvs_df = pd.DataFrame(
+            [(v, k) for k, v in hgvsc_to_dbsnp_dict.items()],
+            columns=['dbsnp_id', 'variant_header']
+        )
+        
+        if variants_plink_df_subset is not None and len(variants_plink_df_subset) > 0:
+            hgvs_df = pd.concat([hgvs_df, variants_plink_df_subset], ignore_index=True)  # add the ones not correctly recorded
+            del variants_plink_df_subset
 
-    hgvs_df = hgvs_df.drop_duplicates(subset=['dbsnp_id'])  # optional - just if I don't want multiple transcripts per genomic mutation
-    hgvs_df[["transcript_ID", "variant"]] = hgvs_df["variant_header"].str.split(":", expand=True)
-    hgvs_df[["nucleotide_positions", "actual_variant"]] = hgvs_df[var_column].str.extract(mutation_pattern)
-    split_positions = hgvs_df["nucleotide_positions"].str.split("_", expand=True)
-    hgvs_df["start_variant_position"] = split_positions[0]
-    if split_positions.shape[1] > 1:
-        hgvs_df["end_variant_position"] = split_positions[1].fillna(split_positions[0])
+        hgvs_df = hgvs_df.drop_duplicates(subset=['dbsnp_id'])  # optional - just if I don't want multiple transcripts per genomic mutation
+        hgvs_df[["transcript_ID", "variant"]] = hgvs_df["variant_header"].str.split(":", expand=True)
+        hgvs_df["transcript_ID"] = hgvs_df["transcript_ID"].str.replace(r"\.\d+$", "", regex=True)
+        hgvs_df[["nucleotide_positions", "actual_variant"]] = hgvs_df[var_column].str.extract(mutation_pattern)
+        split_positions = hgvs_df["nucleotide_positions"].str.split("_", expand=True)
+        hgvs_df["start_variant_position"] = split_positions[0]
+        if split_positions.shape[1] > 1:
+            hgvs_df["end_variant_position"] = split_positions[1].fillna(split_positions[0])
+        else:
+            hgvs_df["end_variant_position"] = hgvs_df["start_variant_position"]
+        hgvs_df.loc[hgvs_df["end_variant_position"].isna(), "end_variant_position"] = hgvs_df["start_variant_position"]
+        hgvs_df[["start_variant_position", "end_variant_position"]] = hgvs_df[["start_variant_position", "end_variant_position"]].astype(int)
+
+        logger.info("Assigning transcript and CDS positions")
+        hgvs_df = hgvs_df.merge(
+            transcript_df[["transcript_ID", "utr_length_preceding_transcript", "strand"]],
+            on="transcript_ID",
+            how="left"
+        ).reset_index(drop=True)
+        del transcript_df
+
+        variant_cdna_NOT_nan_mask = hgvs_df[["start_variant_position", "end_variant_position", "utr_length_preceding_transcript"]].notna().all(axis=1)
+        hgvs_df.loc[variant_cdna_NOT_nan_mask, "start_variant_position_cdna"] = (hgvs_df.loc[variant_cdna_NOT_nan_mask, "start_variant_position"] + hgvs_df.loc[variant_cdna_NOT_nan_mask, "utr_length_preceding_transcript"])
+        hgvs_df.loc[variant_cdna_NOT_nan_mask, "end_variant_position_cdna"] = (hgvs_df.loc[variant_cdna_NOT_nan_mask, "end_variant_position"] + hgvs_df.loc[variant_cdna_NOT_nan_mask, "utr_length_preceding_transcript"])
+
+        hgvs_df["start_variant_position_cdna"] = hgvs_df["start_variant_position_cdna"].astype("Int64")
+        hgvs_df["end_variant_position_cdna"] = hgvs_df["end_variant_position_cdna"].astype("Int64")
+
+        same_pos = variant_cdna_NOT_nan_mask & (hgvs_df["start_variant_position_cdna"] == hgvs_df["end_variant_position_cdna"])
+        diff_pos = variant_cdna_NOT_nan_mask & (hgvs_df["start_variant_position_cdna"] != hgvs_df["end_variant_position_cdna"])
+        hgvs_df.loc[same_pos, "variant_cdna"] = ("c." + hgvs_df.loc[same_pos, "start_variant_position_cdna"].astype(str) + hgvs_df.loc[same_pos, "actual_variant"])
+        hgvs_df.loc[diff_pos, "variant_cdna"] = ("c." + hgvs_df.loc[diff_pos, "start_variant_position_cdna"].astype(str) + "_" + hgvs_df.loc[diff_pos, "end_variant_position_cdna"].astype(str) + hgvs_df.loc[diff_pos, "actual_variant"])
+
+        # add in the missing cDNA positions
+        hgvs_df_missing_cdna = hgvs_df[hgvs_df[["utr_length_preceding_transcript"]].isna().any(axis=1)].copy()
+        hgvs_df_missing_cdna = hgvs_df_missing_cdna[["variant_header", "transcript_ID", "variant"]].rename(columns={"transcript_ID": "seq_ID", "variant": "mutation"})
+        hgvs_df_missing_cdna, _ = convert_mutation_cds_locations_to_cdna(hgvs_df_missing_cdna, cdna_fasta_path=sequences, cds_fasta_path=cds_path, output_csv_path=None, verbose=True)
+        hgvs_df = hgvs_df.merge(hgvs_df_missing_cdna, on="variant_header", how="left", suffixes=("", "_missing_cdna"))
+        hgvs_df["variant_cdna"] = hgvs_df["variant_cdna"].fillna(hgvs_df["mutation_cdna"])
+        hgvs_df.drop(columns=["seq_ID", "mutation", "mutation_cdna"], inplace=True)
+        del hgvs_df_missing_cdna
+
+        hgvs_df = hgvs_df[~hgvs_df["variant_cdna"].str.startswith("c.nan", na=False)]
+        hgvs_df.to_parquet(variants, index=False)
     else:
-        hgvs_df["end_variant_position"] = hgvs_df["start_variant_position"]
-    hgvs_df.loc[hgvs_df["end_variant_position"].isna(), "end_variant_position"] = hgvs_df["start_variant_position"]
-    hgvs_df[["start_variant_position", "end_variant_position"]] = hgvs_df[["start_variant_position", "end_variant_position"]].astype(int)
+        logger.info("Loading transcriptome variants into hgvs_df")
+        hgvs_df = pd.read_parquet(variants)
 
-    logger.info("Assigning transcript and CDS positions")
-    hgvs_df = hgvs_df.merge(
-        transcript_df[["transcript_ID", "utr_length_preceding_transcript", "strand"]],
-        on="transcript_ID",
-        how="left"
-    ).reset_index(drop=True)
-    del transcript_df
+    if not os.path.exists(geuvadis_genotype_true_adata) or not os.path.exists(geuvadis_true_vcf):
+        # update adata and make true VCF
+        genotype_swap_dict = {0: 2, 1: 1, 2: 0}
 
-    hgvs_df["start_variant_position_cdna"] += hgvs_df["utr_length_preceding_transcript"]
-    hgvs_df["end_variant_position_cdna"] += hgvs_df["utr_length_preceding_transcript"]
+        # make variant_type_plink column that is substitution if REF and ALT 1, deletion if REF > 1 and ALT == 1, insertion if REF == 1 and ALT > 1, and delins if REF > 1 and ALT > 1
+        conditions = [
+            (variants_plink_df['REF'].str.len() == 1) & (variants_plink_df['ALT'].str.len() == 1),
+            (variants_plink_df['REF'].str.len() > 1) & (variants_plink_df['ALT'].str.len() == 1),
+            (variants_plink_df['REF'].str.len() == 1) & (variants_plink_df['ALT'].str.len() > 1),
+            (variants_plink_df['REF'].str.len() > 1) & (variants_plink_df['ALT'].str.len() > 1),
+        ]
 
-    hgvs_df.loc[hgvs_df["start_variant_position_cdna"] == hgvs_df["end_variant_position_cdna"], "variant_cdna"] = "c." + hgvs_df["start_variant_position_cdna"].astype(str) + hgvs_df["actual_variant"]
-    hgvs_df.loc[hgvs_df["start_variant_position_cdna"] != hgvs_df["end_variant_position_cdna"], "variant_cdna"] = "c." + hgvs_df["start_variant_position_cdna"].astype(str) + "_" + hgvs_df["end_variant_position_cdna"].astype(str) + hgvs_df["actual_variant"]
+        choices = ['substitution', 'deletion', 'insertion', 'delins']
+        variants_plink_df['variant_type_plink'] = np.select(conditions, choices, default='unknown')
 
-    hgvs_df.to_parquet(variants, index=False)
+        # hgvs_df = hgvs_df.drop_duplicates(subset=['dbsnp_id'])  # in case it wasn't done before
+        dbsnp_to_hgvsc_dict = dict(zip(hgvs_df["dbsnp_id"], hgvs_df["variant_header"]))
+        variants_plink_df["variant_header"] = variants_plink_df["ID"].map(dbsnp_to_hgvsc_dict)
 
-    # update adata and make true VCF
-    genotype_swap_dict = {0: 2, 1: 1, 2: 0}
-
-    # make variant_type_plink column that is substitution if REF and ALT 1, deletion if REF > 1 and ALT == 1, insertion if REF == 1 and ALT > 1, and delins if REF > 1 and ALT > 1
-    conditions = [
-        (variants_plink_df['REF'].str.len() == 1) & (variants_plink_df['ALT'].str.len() == 1),
-        (variants_plink_df['REF'].str.len() > 1) & (variants_plink_df['ALT'].str.len() == 1),
-        (variants_plink_df['REF'].str.len() == 1) & (variants_plink_df['ALT'].str.len() > 1),
-        (variants_plink_df['REF'].str.len() > 1) & (variants_plink_df['ALT'].str.len() > 1),
-    ]
-
-    choices = ['substitution', 'deletion', 'insertion', 'delins']
-    variants_plink_df['variant_type_plink'] = np.select(conditions, choices, default='unknown')
-
-    # merge in strand and actual_variant from hgvs_df
-    logger.info("Merging hgvs_df into variants_plink_df")
-    variants_plink_df = variants_plink_df.merge(
-        hgvs_df[["variant_header", "transcript_ID", "utr_length_preceding_transcript", "strand"]],
-        on="transcript_ID",
-        how="left"
-    ).reset_index(drop=True)
-
-    # make ALT_CDNA_PLINK which is reverse-complement of ALT for - strand and equal to ALT for + strand
-    variants_plink_df["ALT_CDNA_PLINK"] = variants_plink_df["ALT"]
-    variants_plink_df.loc[variants_plink_df["strand"] == "-", "ALT_CDNA_PLINK"] = variants_plink_df.loc[variants_plink_df["strand"] == "-", "ALT"].apply(reverse_complement)
-
-    # make variant_type_true based actual_variant
-    add_variant_type(variants_plink_df, var_column="actual_variant")
-
-    # convert duplication → insertion, and inversion → delins
-    variants_plink_df.loc[variants_plink_df["variant_type_true"] == "duplication", "variant_type_true"] = "insertion"
-    variants_plink_df.loc[variants_plink_df["variant_type_true"] == "inversion", "variant_type_true"] = "delins"
-
-    # make ALT_CDNA_TRUE column that extracts letters after >/ins
-    variants_plink_df['ALT_CDNA_TRUE'] = variants_plink_df['actual_variant'].str.extract(r'(?:>|ins)([A-Za-z]+)')
-    
-    # make must_swap_genotype column as needed, i.e., when ALT_CDNA_PLINK != ALT_CDNA_TRUE:
-    variants_plink_df["must_swap_genotype"] = variants_plink_df["ALT_CDNA_PLINK"] != variants_plink_df["ALT_CDNA_TRUE"]
-    
-    if not os.path.exists(geuvadis_genotype_true_adata):
-        logger.info("Updating adata with true genotypes")
-        # remove variants/cols from adata that aren't in variants_plink_df
-        variant_ids_to_keep = set(variants_plink_df["ID"].unique())
-        keep_mask = adata.var.index.isin(variant_ids_to_keep)
-        adata = adata[:, keep_mask].copy()
+        # merge in strand and actual_variant from hgvs_df
+        logger.info("Merging hgvs_df into variants_plink_df")
+        number_of_variants_in_df_originally = len(variants_plink_df)
+        variants_plink_df = variants_plink_df.merge(
+            hgvs_df[["strand", "variant_header", "variant", "actual_variant"]],
+            on="variant_header",
+            how="left"
+        ).reset_index(drop=True)
         
-        # Ensure adata.var.index is aligned with 'ID' from variants_plink_df
-        swap_ids = variants_plink_df.loc[variants_plink_df["must_swap_genotype"], "ID"]
+        variants_plink_df = variants_plink_df.dropna(subset=["variant_header"])
+        if len(variants_plink_df) < number_of_variants_in_df_originally:
+            valid_ids = set(variants_plink_df["ID"])
+            adata = adata[:, adata.var.index.isin(valid_ids)].copy()
 
-        # Get the column indices in adata corresponding to those IDs
-        swap_cols = adata.var.index.get_indexer(swap_ids)
+        # make ALT_CDNA_PLINK which is reverse-complement of ALT for - strand and equal to ALT for + strand
+        variants_plink_df["ALT_CDNA_PLINK"] = variants_plink_df["ALT"]
+        variants_plink_df.loc[variants_plink_df["strand"] == "-", "ALT_CDNA_PLINK"] = variants_plink_df.loc[variants_plink_df["strand"] == "-", "ALT"].apply(reverse_complement)
 
-        # Create a vectorized function for mapping
-        swap_func = np.vectorize(genotype_swap_dict.get)
+        # make variant_type based actual_variant
+        add_variant_type(variants_plink_df, var_column="variant")
 
-        # Apply the mapping column by column
-        for col in swap_cols:
-            if col != -1:  # skip if ID not found
-                adata.X[:, col] = swap_func(adata.X[:, col])
+        # convert duplication → insertion, and inversion → delins
+        variants_plink_df.loc[variants_plink_df["variant_type"] == "duplication", "variant_type"] = "insertion"
+        variants_plink_df.loc[variants_plink_df["variant_type"] == "inversion", "variant_type"] = "delins"
 
-        # add the HGVSC header to adata.var, and use HGVSC in place of dbsnp when dbsnp not available
-        adata.var[["vcrs_header", "must_swap_id"]] = variants_plink_df[["vcrs_header", "must_swap_id"]]
-        new_index = adata.var.index.to_series()
-        mask = adata.var["must_swap_id"] == True
-        new_index[mask] = adata.var.loc[mask, "vcrs_header"]
-        adata.var.index = new_index
-        adata.var.drop(columns=["must_swap_id"], inplace=True)
+        # make ALT_CDNA_TRUE column that extracts letters after >/ins
+        variants_plink_df['ALT_CDNA_TRUE'] = variants_plink_df['actual_variant'].str.extract(r'(?:>|ins)([A-Za-z]+)')
         
-        adata.write_h5ad(geuvadis_genotype_true_adata)
-    elif os.path.exists(geuvadis_genotype_true_adata) and save_vcf_samples:
-        adata = ad.read_h5ad(geuvadis_genotype_true_adata)
+        # make must_swap_genotype column as needed, i.e., when ALT_CDNA_PLINK != ALT_CDNA_TRUE:
+        variants_plink_df["must_swap_genotype"] = variants_plink_df["ALT_CDNA_PLINK"] != variants_plink_df["ALT_CDNA_TRUE"]
+        
+        if not os.path.exists(geuvadis_genotype_true_adata):
+            logger.info("Updating adata with true genotypes")
+            # remove variants/cols from adata that aren't in variants_plink_df
+            variant_ids_to_keep = set(variants_plink_df["ID"].unique())
+            keep_mask = adata.var.index.isin(variant_ids_to_keep)
+            adata = adata[:, keep_mask].copy()
+            
+            # Ensure adata.var.index is aligned with 'ID' from variants_plink_df
+            swap_ids = variants_plink_df.loc[variants_plink_df["must_swap_genotype"], "ID"]
 
-    if not os.path.exists(geuvadis_true_vcf):
-        logger.info("Writing true VCF")
-        variants_plink_df[["REF_original", "ALT_original"]] = variants_plink_df[["REF", "ALT"]]
+            # Get the column indices in adata corresponding to those IDs
+            swap_cols = adata.var.index.get_indexer(swap_ids)
 
-        # swap REF and ALT as needed
-        swap_mask = variants_plink_df["must_swap_genotype"]
-        temp = variants_plink_df.loc[swap_mask, "REF"]
-        variants_plink_df.loc[swap_mask, "REF"] = variants_plink_df.loc[swap_mask, "ALT"]
-        variants_plink_df.loc[swap_mask, "ALT"] = temp
-        del temp
+            # Create a vectorized function for mapping
+            swap_func = np.vectorize(genotype_swap_dict.get)
 
-        # write to a true VCF now
-        adata_for_vcf = adata if save_vcf_samples else None
-        write_to_vcf(variants_plink_df, output_vcf=geuvadis_true_vcf, save_vcf_samples=save_vcf_samples, adata=adata_for_vcf)
+            # Apply the mapping column by column
+            adata.X = adata.X.tolil()
+            for col in tqdm(swap_cols, total=len(swap_cols), desc="Swapping genotypes"):
+                if col != -1:  # skip if ID not found
+                    adata.X[:, col] = swap_func(adata.X[:, col].toarray())
+            adata.X = adata.X.tocsr()
+
+            # add the HGVSC header to adata.var, and use HGVSC in place of dbsnp when dbsnp not available
+            adata.var = adata.var.merge(variants_plink_df[["ID", "variant_header"]], how="left", left_index=True, right_on="ID")  #$ if I ever implement the variants_plink_df_subset uncommenting, then don't just merge by ID - instead, ensure that adata and variants_plink_df are aligned and then simply set    
+            adata.write_h5ad(geuvadis_genotype_true_adata)
+        elif os.path.exists(geuvadis_genotype_true_adata) and save_vcf_samples:
+            adata = ad.read_h5ad(geuvadis_genotype_true_adata)
+
+        if not os.path.exists(geuvadis_true_vcf):
+            logger.info("Writing true VCF")
+            variants_plink_df[["REF_original", "ALT_original"]] = variants_plink_df[["REF", "ALT"]]
+
+            # swap REF and ALT as needed
+            swap_mask = variants_plink_df["must_swap_genotype"]
+            temp = variants_plink_df.loc[swap_mask, "REF"]
+            variants_plink_df.loc[swap_mask, "REF"] = variants_plink_df.loc[swap_mask, "ALT"]
+            variants_plink_df.loc[swap_mask, "ALT"] = temp
+            del temp
+
+            # write to a true VCF now
+            adata_for_vcf = adata if save_vcf_samples else None
+            write_to_vcf(variants_plink_df, output_file=geuvadis_true_vcf, save_vcf_samples=save_vcf_samples, adata=adata_for_vcf)
 
 #* Run vk ref
 for w_and_k_dict in w_and_k_list_of_dicts:
     w, k = w_and_k_dict["w"], w_and_k_dict["k"]
     logger.info(f"Running vk.ref with w={w} and k={k}")
-    vk_ref_out = f"{vk_ref_out_parent}_w{w}_k{k}"
+    vk_ref_out = os.path.join(vk_ref_out_parent, f"w{w}_k{k}")
     vcrs_index = os.path.join(vk_ref_out, "vcrs_index.idx")
     vcrs_t2g = os.path.join(vk_ref_out, "vcrs_t2g_filtered.txt")
     vk.ref(
@@ -454,4 +497,5 @@ for w_and_k_dict in w_and_k_list_of_dicts:
         chunksize=chunksize,
         save_logs=True,
         verbose=True,
+        merge_identical=False
     )

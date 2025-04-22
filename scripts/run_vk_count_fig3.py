@@ -1,8 +1,11 @@
 import os
 import subprocess
 import json
+import pandas as pd
+import anndata as ad
 import concurrent.futures
 import varseek as vk
+from RLSRWP_2025.constants import box_links_dict
 
 # more on the datasets:
     # CCLE:
@@ -33,7 +36,6 @@ vcrs_index = os.path.join(vk_ref_out, "vcrs_index.idx")
 vcrs_t2g = os.path.join(vk_ref_out, "vcrs_t2g_filtered.txt")
 w=47
 k=51
-dlist_reference_source = "t2t"
 
 # fastqpp
 quality_control_fastqs = True
@@ -69,7 +71,10 @@ sequences="cdna"
 
 # check for VCRS reference files
 if not os.path.isdir(vk_ref_out) or len(os.listdir(vk_ref_out)) == 0:
-    vk.ref(variants="cosmic_cmc", sequences="cdna", w=w, k=k, out=vk_ref_out, dlist_reference_source=dlist_reference_source, download=True, index_out=vcrs_index, t2g_out=vcrs_t2g)
+    index_link, t2g_link = box_links_dict["cosmic_index"], box_links_dict["cosmic_t2g"]
+    vk.utils.download_box_url(index_link, output_file_name=vcrs_index)
+    vk.utils.download_box_url(t2g_link, output_file_name=vcrs_t2g)
+    # vk.ref(variants="cosmic_cmc", sequences="cdna", w=w, k=k, out=vk_ref_out, download=True, index_out=vcrs_index, t2g_out=vcrs_t2g)
     # alternatively, to build from scratch: subprocess.run([os.path.join(script_dir, "run_vk_ref.py")], check=True)
 
 # check for kb count reference genome files when needed in vk count (i.e., when qc_against_gene_matrix=True)
@@ -85,11 +90,8 @@ ccle_ena_project = "PRJNA523380"
 geuvadis_ena_project = "PRJEB3366"
 if sequencing_data_base == "ccle":
     ena_project = ccle_ena_project
-elif sequencing_data_base == "geuvadis":
-    ena_project = geuvadis_ena_project
-    experiment_aliases_to_keep = None
 else:
-    raise ValueError("ccle or geuvadis")
+    raise ValueError("ccle")
 
 json_url = f"https://www.ebi.ac.uk/ena/portal/api/filereport?accession={ena_project}&result=read_run&fields=study_accession,sample_accession,experiment_accession,run_accession,scientific_name,library_strategy,experiment_title,experiment_alias,fastq_bytes,fastq_ftp,sra_ftp,sample_title&format=json&download=true&limit=0"
 
@@ -116,6 +118,8 @@ if not os.path.exists(json_path):
 # Loop through json file and download fastqs
 with open(json_path, 'r', encoding="utf-8") as file:
     data = json.load(file)
+json_df = pd.DataFrame(data)
+json_df['experiment_alias_underscores_only'] = json_df['experiment_alias'].str.replace("-", "_")
 
 if sequencing_data_base == "ccle":
     rnaseq_data = [study for study in data if study['library_strategy'] == 'RNA-Seq']
@@ -133,8 +137,6 @@ if sequencing_data_base == "ccle":
         data_list_to_run = rnaseq_data + wxs_data
     else:
         raise ValueError("data_to_use must be one of 'rnaseq', 'wxs', 'wxs_with_corresponding_rnaseq_sample', 'rnaseq_and_wxs', or 'wxs_and_rnaseq'")
-elif sequencing_data_base == "geuvadis":
-    data_list_to_run = data
 
 number_of_items = len(data_list_to_run)
 
@@ -265,10 +267,16 @@ def download_sequencing_total(
             vcrs_metadata_df=vcrs_metadata_df,
             disable_clean=True,
             disable_summarize=True,
-            overwrite=True  #!!!!!! delete
         )
 
         print(f"Finished vk.count on {sample}")
+    
+    if quality_control_fastqs:
+        fastqs_quality_controlled_dir = os.path.join(vk_count_out_dir, "fastqs_quality_controlled")
+        if os.path.exists(fastqs_quality_controlled_dir):
+            for file in os.listdir(fastqs_quality_controlled_dir):
+                if file.endswith(".fastq.gz") or file.endswith(".fastq") or file.endswith(".fq.gz") or file.endswith(".fq"):
+                    fastq_files.append(os.path.join(fastqs_quality_controlled_dir, file))
 
     if delete_fastq_files:
         for fastq_file in fastq_files:
@@ -309,3 +317,28 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=number_of_tasks) as execu
     ]
 
     concurrent.futures.wait(futures)
+
+adata_combined_path = os.path.join(sequencing_data_out_base, "adata_vcrs_50.h5ad")
+
+if not os.path.exists(adata_combined_path):
+    adata_list = []
+    for sample in os.listdir(sequencing_data_out_base):
+        if os.path.exists(os.path.join(sequencing_data_out_base, sample, "vk_count_out")):
+            adata_single_path = os.path.join(sequencing_data_out_base, sample, "vk_count_out", "kb_count_out_vcrs", "counts_unfiltered", "adata.h5ad")
+            adata_single = ad.read_h5ad(adata_single_path)
+            adata_single.obs["experiment_alias_underscores_only"] = sample
+            adata_list.append(adata_single)
+
+    adata = ad.concat(adata_list, join='outer')
+
+    adata.obs = adata.obs.merge(
+        json_df[['experiment_accession', 'library_strategy', 'primary_disease', 
+                'subtype_disease', 'sex', 'age', 'lineage_subtype', 
+                'Cellosaurus_NCIt_disease', 'lineage', 'experiment_alias_underscores_only']],
+        on='experiment_alias_underscores_only', 
+        how='left'
+    )
+    adata.obs.index = adata.obs.index.astype(str)
+
+    adata.write_h5ad(adata_combined_path)
+print(f"Combined adata saved to {adata_combined_path}")
