@@ -72,7 +72,7 @@ sequences="cdna"
 # check for VCRS reference files
 if not os.path.isdir(vk_ref_out) or len(os.listdir(vk_ref_out)) == 0:
     vk.ref(variants="cosmic_cmc", sequences="cdna", w=w, k=k, out=vk_ref_out, dlist_reference_source=dlist_reference_source, download=True, index_out=vcrs_index, t2g_out=vcrs_t2g)
-    # alternatively, to build from scratch: subprocess.run([os.path.join(script_dir, "run_vk_ref.py")], check=True)
+    # alternatively, to build from scratch: subprocess.run([os.path.join(script_dir, "run_vk_ref_geuvadis.py")], check=True)
 
 # check for kb count reference genome files when needed in vk count (i.e., when qc_against_gene_matrix=True)
 if qc_against_gene_matrix and (not os.path.exists(reference_genome_index) or not os.path.exists(reference_genome_t2g)):
