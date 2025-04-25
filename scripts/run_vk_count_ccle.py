@@ -96,8 +96,9 @@ else:
 json_url = f"https://www.ebi.ac.uk/ena/portal/api/filereport?accession={ena_project}&result=read_run&fields=study_accession,sample_accession,experiment_accession,run_accession,scientific_name,library_strategy,experiment_title,experiment_alias,fastq_bytes,fastq_ftp,sra_ftp,sample_title&format=json&download=true&limit=0"
 
 if experiment_aliases_to_keep is not None:
-    with open(experiment_aliases_to_keep, 'r', encoding="utf-8") as file:
-        experiment_aliases_to_keep = {line.strip() for line in file.readlines()}
+    if os.path.isfile(experiment_aliases_to_keep):
+        with open(experiment_aliases_to_keep, 'r', encoding="utf-8") as file:
+            experiment_aliases_to_keep = {line.strip() for line in file.readlines()}
 
 # metadata json
 os.makedirs(sequencing_data_out_base, exist_ok=True)

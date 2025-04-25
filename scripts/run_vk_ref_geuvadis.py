@@ -50,7 +50,7 @@ w_and_k_list_of_dicts = [
     {"w": 47, "k": 51},
 ]
 seq_id_column = "transcript_ID"
-var_column = "variant"
+var_column = "variant_cdna"
 dlist_reference_source = "t2t"
 threads = 16
 chunksize = None
@@ -302,6 +302,9 @@ if not os.path.exists(variants) or not os.path.exists(geuvadis_genotype_true_ada
     #             on="transcript_ID",
     #             how="left"
     #         ).reset_index(drop=True)
+
+    #         # TODO: account for swapping REF and ALT as needed (which I do below, but I would just need to move up) - look at CHROM and POS, do a lookup of this base; if base == REF[0], then keep; elif base == ALT[0], then swap; else give error (and likely exit whole function because it indicates systemic error)
+                #* note that the above method only works for substitution/delins - cannot work for deletion or insertion because the REF[0] base will be correct regardless - I can look to see if the entirety of REF matches the reference genome for deletion, and I can look to see if the entirety of ALT matches the reference genome for insertion; if not a perfect match, then I know insertion; but if it is a perfect match, then I don't know whether deletion or duplication, so I'm still stumped
             
     #         # ensure REF and ALT reflect what is going on on the cDNA
     #         variants_plink_df_subset["pos_original"] = variants_plink_df_subset["POS"]  # just as a copy, in case I want it later
@@ -311,7 +314,6 @@ if not os.path.exists(variants) or not os.path.exists(geuvadis_genotype_true_ada
     #         variants_plink_df_subset.loc[variants_plink_df_subset["strand"] == "-", "ALT"] = variants_plink_df_subset.loc[variants_plink_df_subset["strand"] == "-", "ALT"].apply(reverse_complement)
     #         variants_plink_df_subset["POS"] = variants_plink_df_subset["start_variant_position"].astype(int)
 
-    #         # TODO: account for swapping REF and ALT as needed (which I do below, but I would just need to move up)
             
     #         # create HGVSC info
     #         add_variant_type_column_to_vcf_derived_df(variants_plink_df_subset)
@@ -333,18 +335,19 @@ if not os.path.exists(variants) or not os.path.exists(geuvadis_genotype_true_ada
             hgvs_df = pd.concat([hgvs_df, variants_plink_df_subset], ignore_index=True)  # add the ones not correctly recorded
             del variants_plink_df_subset
 
-        hgvs_df = hgvs_df.drop_duplicates(subset=['dbsnp_id'])  # optional - just if I don't want multiple transcripts per genomic mutation
         hgvs_df[["transcript_ID", "variant"]] = hgvs_df["variant_header"].str.split(":", expand=True)
         hgvs_df["transcript_ID"] = hgvs_df["transcript_ID"].str.replace(r"\.\d+$", "", regex=True)
-        hgvs_df[["nucleotide_positions", "actual_variant"]] = hgvs_df[var_column].str.extract(mutation_pattern)
-        split_positions = hgvs_df["nucleotide_positions"].str.split("_", expand=True)
-        hgvs_df["start_variant_position"] = split_positions[0]
-        if split_positions.shape[1] > 1:
-            hgvs_df["end_variant_position"] = split_positions[1].fillna(split_positions[0])
-        else:
-            hgvs_df["end_variant_position"] = hgvs_df["start_variant_position"]
-        hgvs_df.loc[hgvs_df["end_variant_position"].isna(), "end_variant_position"] = hgvs_df["start_variant_position"]
-        hgvs_df[["start_variant_position", "end_variant_position"]] = hgvs_df[["start_variant_position", "end_variant_position"]].astype(int)
+        hgvs_df[["nucleotide_positions", "actual_variant"]] = hgvs_df["variant"].str.extract(mutation_pattern)
+        hgvs_df["after_ins_or_gt"] = hgvs_df["actual_variant"].str.extract(r"(?:ins|>)(.+)")
+        hgvs_df['ALT_CDNA_TRUE'] = hgvs_df['actual_variant'].str.extract(r'(?:>|ins)([A-Za-z]+)')
+        # split_positions = hgvs_df["nucleotide_positions"].str.split("_", expand=True)
+        # hgvs_df["start_variant_position"] = split_positions[0]
+        # if split_positions.shape[1] > 1:
+        #     hgvs_df["end_variant_position"] = split_positions[1].fillna(split_positions[0])
+        # else:
+        #     hgvs_df["end_variant_position"] = hgvs_df["start_variant_position"]
+        # hgvs_df.loc[hgvs_df["end_variant_position"].isna(), "end_variant_position"] = hgvs_df["start_variant_position"]
+        # hgvs_df[["start_variant_position", "end_variant_position"]] = hgvs_df[["start_variant_position", "end_variant_position"]].astype(int)
 
         logger.info("Assigning transcript and CDS positions")
         hgvs_df = hgvs_df.merge(
@@ -354,28 +357,34 @@ if not os.path.exists(variants) or not os.path.exists(geuvadis_genotype_true_ada
         ).reset_index(drop=True)
         del transcript_df
 
-        variant_cdna_NOT_nan_mask = hgvs_df[["start_variant_position", "end_variant_position", "utr_length_preceding_transcript"]].notna().all(axis=1)
-        hgvs_df.loc[variant_cdna_NOT_nan_mask, "start_variant_position_cdna"] = (hgvs_df.loc[variant_cdna_NOT_nan_mask, "start_variant_position"] + hgvs_df.loc[variant_cdna_NOT_nan_mask, "utr_length_preceding_transcript"])
-        hgvs_df.loc[variant_cdna_NOT_nan_mask, "end_variant_position_cdna"] = (hgvs_df.loc[variant_cdna_NOT_nan_mask, "end_variant_position"] + hgvs_df.loc[variant_cdna_NOT_nan_mask, "utr_length_preceding_transcript"])
+        # variant_cdna_NOT_nan_mask = hgvs_df[["start_variant_position", "end_variant_position", "utr_length_preceding_transcript"]].notna().all(axis=1)
+        # hgvs_df.loc[variant_cdna_NOT_nan_mask, "start_variant_position_cdna"] = (hgvs_df.loc[variant_cdna_NOT_nan_mask, "start_variant_position"] + hgvs_df.loc[variant_cdna_NOT_nan_mask, "utr_length_preceding_transcript"])
+        # hgvs_df.loc[variant_cdna_NOT_nan_mask, "end_variant_position_cdna"] = (hgvs_df.loc[variant_cdna_NOT_nan_mask, "end_variant_position"] + hgvs_df.loc[variant_cdna_NOT_nan_mask, "utr_length_preceding_transcript"])
 
-        hgvs_df["start_variant_position_cdna"] = hgvs_df["start_variant_position_cdna"].astype("Int64")
-        hgvs_df["end_variant_position_cdna"] = hgvs_df["end_variant_position_cdna"].astype("Int64")
+        # hgvs_df["start_variant_position_cdna"] = hgvs_df["start_variant_position_cdna"].astype("Int64")
+        # hgvs_df["end_variant_position_cdna"] = hgvs_df["end_variant_position_cdna"].astype("Int64")
 
-        same_pos = variant_cdna_NOT_nan_mask & (hgvs_df["start_variant_position_cdna"] == hgvs_df["end_variant_position_cdna"])
-        diff_pos = variant_cdna_NOT_nan_mask & (hgvs_df["start_variant_position_cdna"] != hgvs_df["end_variant_position_cdna"])
-        hgvs_df.loc[same_pos, "variant_cdna"] = ("c." + hgvs_df.loc[same_pos, "start_variant_position_cdna"].astype(str) + hgvs_df.loc[same_pos, "actual_variant"])
-        hgvs_df.loc[diff_pos, "variant_cdna"] = ("c." + hgvs_df.loc[diff_pos, "start_variant_position_cdna"].astype(str) + "_" + hgvs_df.loc[diff_pos, "end_variant_position_cdna"].astype(str) + hgvs_df.loc[diff_pos, "actual_variant"])
+        # same_pos = variant_cdna_NOT_nan_mask & (hgvs_df["start_variant_position_cdna"] == hgvs_df["end_variant_position_cdna"])
+        # diff_pos = variant_cdna_NOT_nan_mask & (hgvs_df["start_variant_position_cdna"] != hgvs_df["end_variant_position_cdna"])
+        # hgvs_df.loc[same_pos, "variant_cdna"] = ("c." + hgvs_df.loc[same_pos, "start_variant_position_cdna"].astype(str) + hgvs_df.loc[same_pos, "actual_variant"])
+        # hgvs_df.loc[diff_pos, "variant_cdna"] = ("c." + hgvs_df.loc[diff_pos, "start_variant_position_cdna"].astype(str) + "_" + hgvs_df.loc[diff_pos, "end_variant_position_cdna"].astype(str) + hgvs_df.loc[diff_pos, "actual_variant"])
 
-        # add in the missing cDNA positions
-        hgvs_df_missing_cdna = hgvs_df[hgvs_df[["utr_length_preceding_transcript"]].isna().any(axis=1)].copy()
+        # # add in the missing cDNA positions
+        # hgvs_df_missing_cdna = hgvs_df[hgvs_df[["utr_length_preceding_transcript"]].isna().any(axis=1)].copy()
+        hgvs_df_missing_cdna = hgvs_df.copy()
         hgvs_df_missing_cdna = hgvs_df_missing_cdna[["variant_header", "transcript_ID", "variant"]].rename(columns={"transcript_ID": "seq_ID", "variant": "mutation"})
-        hgvs_df_missing_cdna, _ = convert_mutation_cds_locations_to_cdna(hgvs_df_missing_cdna, cdna_fasta_path=sequences, cds_fasta_path=cds_path, output_csv_path=None, verbose=True)
+        hgvs_df_missing_cdna, _ = convert_mutation_cds_locations_to_cdna(hgvs_df_missing_cdna, cdna_fasta_path=sequences, cds_fasta_path=cds_path, output_csv_path=None, verbose=True, strip_leading_Ns_cds=False)
         hgvs_df = hgvs_df.merge(hgvs_df_missing_cdna, on="variant_header", how="left", suffixes=("", "_missing_cdna"))
-        hgvs_df["variant_cdna"] = hgvs_df["variant_cdna"].fillna(hgvs_df["mutation_cdna"])
+        # hgvs_df["variant_cdna"] = hgvs_df["mutation_cdna"].fillna(hgvs_df["mutation_cdna"])
+        hgvs_df["variant_cdna"] = hgvs_df["mutation_cdna"]
         hgvs_df.drop(columns=["seq_ID", "mutation", "mutation_cdna"], inplace=True)
         del hgvs_df_missing_cdna
 
         hgvs_df = hgvs_df[~hgvs_df["variant_cdna"].str.startswith("c.nan", na=False)]
+
+        # make variant_type based actual_variant
+        add_variant_type(hgvs_df, var_column="variant")
+
         hgvs_df.to_parquet(variants, index=False)
     else:
         logger.info("Loading transcriptome variants into hgvs_df")
@@ -396,40 +405,133 @@ if not os.path.exists(variants) or not os.path.exists(geuvadis_genotype_true_ada
         choices = ['substitution', 'deletion', 'insertion', 'delins']
         variants_plink_df['variant_type_plink'] = np.select(conditions, choices, default='unknown')
 
-        # hgvs_df = hgvs_df.drop_duplicates(subset=['dbsnp_id'])  # in case it wasn't done before
-        dbsnp_to_hgvsc_dict = dict(zip(hgvs_df["dbsnp_id"], hgvs_df["variant_header"]))
-        variants_plink_df["variant_header"] = variants_plink_df["ID"].map(dbsnp_to_hgvsc_dict)
-
-        # merge in strand and actual_variant from hgvs_df
+        # merge in strand from hgvs_df
         logger.info("Merging hgvs_df into variants_plink_df")
         number_of_variants_in_df_originally = len(variants_plink_df)
+
         variants_plink_df = variants_plink_df.merge(
-            hgvs_df[["strand", "variant_header", "variant", "actual_variant"]],
-            on="variant_header",
+            hgvs_df[["dbsnp_id", "strand"]].drop_duplicates(subset=["dbsnp_id"], keep="first").reset_index(drop=True),
+            left_on="ID",
+            right_on="dbsnp_id",
             how="left"
         ).reset_index(drop=True)
+        variants_plink_df = variants_plink_df.dropna(subset=["dbsnp_id"])
+        variants_plink_df = variants_plink_df.drop(columns="dbsnp_id")
+
+        # make ALT_CDNA_PLINK which is reverse-complement of ALT for - strand and equal to ALT for + strand
+        variants_plink_df["ALT_CDNA_PLINK"] = variants_plink_df["ALT"]
+        variants_plink_df.loc[variants_plink_df["strand"] == "-", "ALT_CDNA_PLINK"] = variants_plink_df.loc[variants_plink_df["strand"] == "-", "ALT_CDNA_PLINK"].apply(reverse_complement)
+        variants_plink_df["REF_CDNA_PLINK"] = variants_plink_df["REF"]
+        variants_plink_df.loc[variants_plink_df["strand"] == "-", "REF_CDNA_PLINK"] = variants_plink_df.loc[variants_plink_df["strand"] == "-", "REF_CDNA_PLINK"].apply(reverse_complement)
+
+        # optional - get rid of alternative splice transcript isoforms (and get rid of deletions that span different bases but have the same dbsnp_id, which should be zero but is still a nice sanity check to get for free)
+        hgvs_df = hgvs_df.drop_duplicates(subset=["dbsnp_id", "ALT_CDNA_TRUE"], keep="first")
         
-        variants_plink_df = variants_plink_df.dropna(subset=["variant_header"])
+        variants_plink_df["ALT_CDNA_PLINK_no_first_base"] = variants_plink_df["ALT_CDNA_PLINK"].str[1:]
+        variants_plink_df["REF_CDNA_PLINK_no_first_base"] = variants_plink_df["REF_CDNA_PLINK"].str[1:]
+
+        # do my merges
+        variants_plink_df["must_swap_genotype"] = False
+        #* Case 1: Insertion, plink was correct
+        logger.info("Case 1: Insertion, plink was correct")
+        insertion_merged_correct = variants_plink_df[variants_plink_df["variant_type_plink"] == "insertion"].merge(
+            hgvs_df[["variant_header", "ALT_CDNA_TRUE", "variant_type", "dbsnp_id"]],
+            left_on=["ID", "ALT_CDNA_PLINK_no_first_base"],
+            right_on=["dbsnp_id", "ALT_CDNA_TRUE"],
+            how="left"
+        ).reset_index(drop=True)
+        insertion_merged_correct = insertion_merged_correct.dropna(subset=["variant_header"])
+        insertion_merged_correct = insertion_merged_correct.drop_duplicates(subset=["ID", "POS", "REF", "ALT"])
+        #* Case 2: Insertion, plink was incorrect
+        logger.info("Case 2: Insertion, plink was incorrect")
+        insertion_merged_wrong = variants_plink_df[variants_plink_df["variant_type_plink"] == "deletion"].merge(
+            hgvs_df[["variant_header", "ALT_CDNA_TRUE", "variant_type", "dbsnp_id"]],
+            left_on=["ID", "REF_CDNA_PLINK_no_first_base"],
+            right_on=["dbsnp_id", "ALT_CDNA_TRUE"],
+            how="left"
+        ).reset_index(drop=True)
+        insertion_merged_wrong = insertion_merged_wrong.dropna(subset=["variant_header"])
+        insertion_merged_wrong = insertion_merged_wrong.drop_duplicates(subset=["ID", "POS", "REF", "ALT"])
+        insertion_merged_wrong["must_swap_genotype"] = True
+        #* Case 3: Deletion, plink was correct
+        logger.info("Case 3: Deletion, plink was correct")
+        deletion_merged_correct = variants_plink_df[variants_plink_df["variant_type_plink"] == "deletion"].merge(
+            hgvs_df[["variant_header", "ALT_CDNA_TRUE", "variant_type", "dbsnp_id"]],
+            left_on="ID",
+            right_on="dbsnp_id",
+            how="left"
+        ).reset_index(drop=True)
+        deletion_merged_correct = deletion_merged_correct.dropna(subset=["variant_header"])
+        deletion_merged_correct = deletion_merged_correct.drop_duplicates(subset=["ID", "POS", "REF", "ALT"])
+        #* Case 4: Deletion, plink was incorrect
+        logger.info("Case 4: Deletion, plink was incorrect")
+        deletion_merged_wrong = variants_plink_df[variants_plink_df["variant_type_plink"] == "insertion"].merge(
+            hgvs_df[["variant_header", "ALT_CDNA_TRUE", "variant_type", "dbsnp_id"]],
+            left_on="ID",
+            right_on="dbsnp_id",
+            how="left"
+        ).reset_index(drop=True)
+        deletion_merged_wrong = deletion_merged_wrong.dropna(subset=["variant_header"])
+        deletion_merged_wrong = deletion_merged_wrong.drop_duplicates(subset=["ID", "POS", "REF", "ALT"])
+        deletion_merged_wrong["must_swap_genotype"] = True
+        #* Case 5: Substitution/delins, plink was correct
+        logger.info("Case 5: Substitution/delins, plink was correct")
+        substitution_merged_correct = variants_plink_df[(variants_plink_df["variant_type_plink"] == "substitution") | (variants_plink_df["variant_type_plink"] == "delins")].merge(
+            hgvs_df[["variant_header", "ALT_CDNA_TRUE", "variant_type", "dbsnp_id"]],
+            left_on=["ID", "ALT_CDNA_PLINK"],
+            right_on=["dbsnp_id", "ALT_CDNA_TRUE"],
+            how="left"
+        ).reset_index(drop=True)
+        substitution_merged_correct = substitution_merged_correct.dropna(subset=["variant_header"])
+        substitution_merged_correct = substitution_merged_correct.drop_duplicates(subset=["ID", "POS", "REF", "ALT"])
+        #* Case 6: Substitution/delins, plink was incorrect
+        logger.info("Case 6: Substitution/delins, plink was incorrect")
+        substitution_merged_wrong = variants_plink_df[(variants_plink_df["variant_type_plink"] == "substitution") | (variants_plink_df["variant_type_plink"] == "delins")].merge(
+            hgvs_df[["variant_header", "ALT_CDNA_TRUE", "variant_type", "dbsnp_id"]],
+            left_on=["ID", "REF_CDNA_PLINK"],
+            right_on=["dbsnp_id", "ALT_CDNA_TRUE"],
+            how="left"
+        ).reset_index(drop=True)
+        substitution_merged_wrong = substitution_merged_wrong.dropna(subset=["variant_header"])
+        substitution_merged_wrong = substitution_merged_wrong.drop_duplicates(subset=["ID", "POS", "REF", "ALT"])
+        substitution_merged_wrong["must_swap_genotype"] = True
+
+        # variants_plink_df_copy = variants_plink_df.copy()
+        variants_plink_df = pd.concat([insertion_merged_correct, insertion_merged_wrong, deletion_merged_correct, deletion_merged_wrong, substitution_merged_correct, substitution_merged_wrong], ignore_index=True)
+        variants_plink_df = variants_plink_df.dropna(subset=["variant_header"])  # should be 0, but still a sanity check
+
+        # optional - drop rows where dbsnp ID is duplicated, keeping only those where must_swap_genotype is False (because these represent the vast majority of cases, I trust that this is what Geuvadis meant)
+        variants_plink_df = variants_plink_df.sort_values(
+            by=["must_swap_genotype"], ascending=True
+        )
+        variants_plink_df = variants_plink_df.drop_duplicates(subset=["ID"], keep="first").reset_index(drop=True)
+        assert len(variants_plink_df[variants_plink_df.duplicated(subset=["ID"], keep=False)]) == 0, "Duplicate IDs found in variants_plink_df after merging with hgvs_df and allegedly controlling for all duplicates"
+
         if len(variants_plink_df) < number_of_variants_in_df_originally:
             valid_ids = set(variants_plink_df["ID"])
             adata = adata[:, adata.var.index.isin(valid_ids)].copy()
 
-        # make ALT_CDNA_PLINK which is reverse-complement of ALT for - strand and equal to ALT for + strand
-        variants_plink_df["ALT_CDNA_PLINK"] = variants_plink_df["ALT"]
-        variants_plink_df.loc[variants_plink_df["strand"] == "-", "ALT_CDNA_PLINK"] = variants_plink_df.loc[variants_plink_df["strand"] == "-", "ALT"].apply(reverse_complement)
-
-        # make variant_type based actual_variant
-        add_variant_type(variants_plink_df, var_column="variant")
-
-        # convert duplication → insertion, and inversion → delins
-        variants_plink_df.loc[variants_plink_df["variant_type"] == "duplication", "variant_type"] = "insertion"
-        variants_plink_df.loc[variants_plink_df["variant_type"] == "inversion", "variant_type"] = "delins"
-
-        # make ALT_CDNA_TRUE column that extracts letters after >/ins
-        variants_plink_df['ALT_CDNA_TRUE'] = variants_plink_df['actual_variant'].str.extract(r'(?:>|ins)([A-Za-z]+)')
+        final_headers = set(variants_plink_df["variant_header"].tolist())
+        hgvs_df = hgvs_df[hgvs_df["variant_header"].isin(final_headers)]
+        hgvs_df.to_parquet(variants, index=False)
         
-        # make must_swap_genotype column as needed, i.e., when ALT_CDNA_PLINK != ALT_CDNA_TRUE:
-        variants_plink_df["must_swap_genotype"] = variants_plink_df["ALT_CDNA_PLINK"] != variants_plink_df["ALT_CDNA_TRUE"]
+        # # old, bad code
+        # # make variant_type_plink based on preliminary vcf
+        # variants_plink_df["variant_type_plink"] = variants_plink_df.apply(
+        #     lambda row: "sub_or_delins"
+        #     if len(str(row["ALT"])) == len(str(row["REF"]))
+        #     else ("insertion" if len(str(row["ALT"])) > len(str(row["REF"])) else "deletion"),
+        #     axis=1
+        # )
+
+        # # convert duplication → insertion, and inversion → delins
+        # variants_plink_df.loc[variants_plink_df["variant_type"] == "duplication", "variant_type"] = "insertion"
+        # variants_plink_df.loc[variants_plink_df["variant_type"] == "inversion", "variant_type"] = "delins"
+        
+        # # make must_swap_genotype column as needed, i.e., when ALT_CDNA_PLINK != ALT_CDNA_TRUE (subs and delins), or where deletion and insertion are swapped
+        # sub_or_delins_mask = variants_plink_df["variant_type_plink"] == "sub_or_delins"
+        # variants_plink_df.loc[sub_or_delins_mask, "must_swap_genotype"] = variants_plink_df.loc[sub_or_delins_mask, "ALT_CDNA_PLINK"] != variants_plink_df.loc[sub_or_delins_mask, "ALT_CDNA_TRUE"]
+        # variants_plink_df.loc[~sub_or_delins_mask, "must_swap_genotype"] = variants_plink_df.loc[~sub_or_delins_mask, "variant_type"] != variants_plink_df.loc[~sub_or_delins_mask, "variant_type_plink"]
         
         if not os.path.exists(geuvadis_genotype_true_adata):
             logger.info("Updating adata with true genotypes")
@@ -439,7 +541,7 @@ if not os.path.exists(variants) or not os.path.exists(geuvadis_genotype_true_ada
             adata = adata[:, keep_mask].copy()
             
             # Ensure adata.var.index is aligned with 'ID' from variants_plink_df
-            swap_ids = variants_plink_df.loc[variants_plink_df["must_swap_genotype"], "ID"]
+            swap_ids = variants_plink_df.loc[variants_plink_df["must_swap_genotype"], "ID"].values
 
             # Get the column indices in adata corresponding to those IDs
             swap_cols = adata.var.index.get_indexer(swap_ids)
@@ -490,12 +592,13 @@ for w_and_k_dict in w_and_k_list_of_dicts:
         seq_id_column=seq_id_column,
         var_column=var_column,
         out=vk_ref_out,
+        reference_out_dir=reference_out_dir,
         dlist_reference_source=dlist_reference_source,
         index_out=vcrs_index,
         t2g_out=vcrs_t2g,
         threads=threads,
         chunksize=chunksize,
-        save_logs=True,
+        save_logs=False,
         verbose=True,
         merge_identical=False
     )

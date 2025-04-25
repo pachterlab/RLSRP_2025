@@ -193,7 +193,7 @@ if not os.path.exists(cosmic_mutations_path_original):
 
 if "mutation_cdna" not in cosmic_mutations.columns:
     logger.info("Converting CDS to cDNA in COSMIC")
-    _, _ = convert_mutation_cds_locations_to_cdna(input_csv_path=cosmic_mutations_path, output_csv_path=cosmic_mutations_path, cds_fasta_path=reference_cds_path, cdna_fasta_path=reference_cdna_path, verbose=True)
+    _, _ = convert_mutation_cds_locations_to_cdna(input_csv_path=cosmic_mutations_path, output_csv_path=cosmic_mutations_path, cds_fasta_path=reference_cds_path, cdna_fasta_path=reference_cdna_path, verbose=True, strip_leading_Ns_cds=True)
 
 #* Make synthetic reads corresponding to the largest value in number_of_reads_list - if desired, I can replace this with real data
 number_of_reads_max = int(max(number_of_reads_list) * 10**6)  # convert to millions

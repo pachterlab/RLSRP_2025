@@ -20,7 +20,7 @@ cd RLSRWP_2025
 We recommend using an environment manager such as conda. Some additional non-python packages must be installed for full functionality. If using conda (recommended), simply run the following:
 
 ```sh
-conda create -f environment.yml
+conda env create -f environment.yml
 conda activate RLSRWP_2025
 ```
 
