@@ -179,6 +179,8 @@ star_align_command = [
     "--outSAMmapqUnique", "60",
     "--twopassMode", "Basic"
 ]
+if synthetic_read_fastq.endswith(".gz"):
+    star_align_command += ["--readFilesCommand", "zcat"]
 if not aligned_and_unmapped_bam:
     aligned_and_unmapped_bam = f"{out_file_name_prefix}Aligned.sortedByCoord.out.bam"
 if not os.path.exists(aligned_and_unmapped_bam):

@@ -2,6 +2,7 @@ import os
 import subprocess
 import json
 import pandas as pd
+import re
 import anndata as ad
 import concurrent.futures
 import varseek as vk
@@ -105,9 +106,11 @@ else:
 json_url = f"https://www.ebi.ac.uk/ena/portal/api/filereport?accession={ena_project}&result=read_run&fields=study_accession,sample_accession,experiment_accession,run_accession,scientific_name,library_strategy,experiment_title,experiment_alias,fastq_bytes,fastq_ftp,sra_ftp,sample_title&format=json&download=true&limit=0"
 
 if experiment_aliases_to_keep is not None:
-    if os.path.isfile(experiment_aliases_to_keep):
+    if isinstance(experiment_aliases_to_keep, str) and os.path.isfile(experiment_aliases_to_keep):
         with open(experiment_aliases_to_keep, 'r', encoding="utf-8") as file:
             experiment_aliases_to_keep = {line.strip() for line in file.readlines()}
+
+    experiment_aliases_to_keep = {re.sub(r"[-.:]", "_", experiment_alias) for experiment_alias in experiment_aliases_to_keep}  # replace dash, period, and colon with underscore
 
 # metadata json
 os.makedirs(sequencing_data_out_base, exist_ok=True)
@@ -120,7 +123,7 @@ if not os.path.exists(json_path):
 with open(json_path, 'r', encoding="utf-8") as file:
     data = json.load(file)
 json_df = pd.DataFrame(data)
-json_df['experiment_alias_underscores_only'] = json_df['experiment_alias'].str.replace("-", "_")
+json_df['experiment_alias_underscores_only'] = json_df['experiment_alias'].str.replace(r"[-.:]", "_", regex=True)  # replace dash, period, and colon with underscore
 
 sample_metadata_df = pd.read_csv(sample_metadata_tsv_file, sep="\t")
 json_df = json_df.merge(sample_metadata_df, left_on='sample_title', right_on='Sample name', how='left')
@@ -161,10 +164,10 @@ def download_sequencing_total(
     number_of_threads_per_varseek_count_task=2,
 ):
     experiment_alias = record.get('experiment_alias')
-    experiment_alias_underscores_only = experiment_alias.replace("-", "_")
+    experiment_alias_underscores_only = re.sub(r"[-.:]", "_", experiment_alias)
     sample = experiment_alias_underscores_only  # f"{experiment_alias_underscores_only}___{sample_accession}___{experiment_accession}___{run_accession}"
 
-    if sample in {"E_GEUV_1:NA20527.1.M_111124_6", "E_GEUV_1_NA20527_1_M_111124_6"}:
+    if sample in {"E_GEUV_1_NA20527_1_M_111124_6"}:
         return  # bad sample - has 3 FASTQs
 
     if experiment_aliases_to_keep is not None and sample not in experiment_aliases_to_keep:
@@ -222,7 +225,7 @@ def download_sequencing_total(
     if download_only:
         return
     
-    if os.path.isfile(vcrs_metadata_df):
+    if isinstance(vcrs_metadata_df, str) and os.path.isfile(vcrs_metadata_df):
         variants = None
     
     if quality_control_fastqs:

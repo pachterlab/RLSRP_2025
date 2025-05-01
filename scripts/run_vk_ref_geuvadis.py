@@ -79,7 +79,7 @@ cds_path = os.path.join(ensembl_reference_files_dir, "Homo_sapiens.GRCh37.cds.al
 hgvsc_to_dbsnp_pkl_path = os.path.join(geuvadis_reference_files_dir, "hgvsc_to_dbsnp_dict_tmp.pkl")
 
 geuvadis_rna_json_file = os.path.join(geuvadis_reference_files_dir, "geuvadis_metadata.json")
-total_entries = 517114  # zcat /home/jrich/Desktop/RLSRWP_2025/data/reference/geuvadis/1kg_phase1_all_preliminary_exons.vcf.gz | wc -l
+total_entries = 517114  # zcat 1kg_phase1_all_preliminary_exons.vcf.gz | wc -l
 
 #* Download geuvadis RNA metadata (for extracting sample names)
 if not os.path.exists(geuvadis_rna_json_file):
@@ -128,7 +128,7 @@ if not os.path.exists(geuvadis_preliminary_vcf):  # plink pseudo-VCF doesn't exi
     logger.info("Converting plink files to preliminary VCF")
     if not is_program_installed(plink):
         raise ValueError(f"plink is not installed. Please install plink to run this script.")
-    plink_to_preliminary_vcf_command = [plink, "--bfile", "/data/geuvadis_data_base/genome_variants_ground_truth/1kg_phase1_all", "--threads", str(threads), "--recode", "vcf", "bgz", "--out", geuvadis_reference_variants_prefix]
+    plink_to_preliminary_vcf_command = [plink, "--bfile", geuvadis_reference_variants_prefix, "--threads", str(threads), "--recode", "vcf", "bgz", "--out", geuvadis_preliminary_vcf.split(".")[0]]
     subprocess.run(plink_to_preliminary_vcf_command, check=True)
 
 if not os.path.exists(geuvadis_preliminary_vcf_exons_only):
@@ -148,13 +148,7 @@ if total_entries is None:
 #* make adata
 if not os.path.exists(geuvadis_genotype_preliminary_adata):
     logger.info("Converting preliminary VCF to adata")
-    with open(geuvadis_rna_json_file, 'r', encoding="utf-8") as file:
-        data = json.load(file)
-
-    rna_df = pd.DataFrame(data)
-    sample_titles_set = set(rna_df['sample_title'].tolist())
-
-    adata = convert_vcf_samples_to_anndata(geuvadis_preliminary_vcf_exons_only, sample_titles_set=sample_titles_set, adata_out=geuvadis_genotype_preliminary_adata, total=total_entries)
+    adata = convert_vcf_samples_to_anndata(geuvadis_preliminary_vcf_exons_only, sample_titles_set=None, adata_out=geuvadis_genotype_preliminary_adata, total=total_entries)
 else:
     logger.info("Loading preliminary adata")
     adata = ad.read_h5ad(geuvadis_genotype_preliminary_adata)
@@ -602,3 +596,5 @@ for w_and_k_dict in w_and_k_list_of_dicts:
         verbose=True,
         merge_identical=False
     )
+
+# geuvadis plink files --> VCF-like --> filter VCF-like file to keep only exon regions --> VCF (swap ref and alt when needed) --> convert to CDS coordinates (HGVSc) --> convert to cDNA (includes UTRs)

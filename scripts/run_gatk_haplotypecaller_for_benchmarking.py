@@ -124,7 +124,7 @@ reference_genome_dict = reference_genome_fasta.replace(".fa", ".dict")
 # commented out, as these should already be done prior to running this script
 reference_genome_fasta_url = "https://ftp.ensembl.org/pub/grch37/release-93/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.dna.primary_assembly.fa.gz"
 reference_genome_gtf_url = "https://ftp.ensembl.org/pub/grch37/release-93/gtf/homo_sapiens/Homo_sapiens.GRCh37.87.gtf.gz"
-genomes1000_vcf_url = "https://ftp.ensembl.org/pub/grch37/release-93/variation/vcf/homo_sapiens/1000GENOMES-phase_3.vcf.gz"
+genomes1000_vcf_url = "https://ftp.ensembl.org/pub/grch37/release-113/variation/vcf/homo_sapiens/1000GENOMES-phase_3.vcf.gz"
 
 download_reference_genome_fasta_command = ["wget", "-O", f"{reference_genome_fasta}.gz", reference_genome_fasta_url]
 unzip_reference_genome_fasta_command = ["gunzip", f"{reference_genome_fasta}.gz"]
@@ -178,6 +178,8 @@ star_align_command = [
     "--outSAMmapqUnique", "60",
     "--twopassMode", "Basic"
 ]
+if synthetic_read_fastq.endswith(".gz"):
+    star_align_command += ["--readFilesCommand", "zcat"]
 if not aligned_and_unmapped_bam:
     aligned_and_unmapped_bam = f"{out_file_name_prefix}Aligned.sortedByCoord.out.bam"
 if not os.path.exists(aligned_and_unmapped_bam):

@@ -28,7 +28,7 @@ download_only = False
 delete_fastq_files = False
 overwrite_vk_count = False
 sequencing_data_out_base = os.path.join(data_dir, f"{sequencing_data_base}_data_base")
-experiment_aliases_to_keep = {"E_GEUV_1:HG00377.1.M_120209_6"}  # None to use all
+experiment_aliases_to_keep = None  # {"E_GEUV_1:HG00377.1.M_120209_6"}  # None to use all
 
 # reference parameters
 vk_ref_out_parent = os.path.join(data_dir, "vk_ref_out_geuvadis")
@@ -47,9 +47,9 @@ geuvadis_true_vcf = os.path.join(geuvadis_reference_files_dir, f"{geuvadis_refer
 sample_metadata_tsv_file = os.path.join(sequencing_data_out_base, "sample_metadata.tsv")
 
 # fastqpp
-quality_control_fastqs = False
-cut_front = False
-cut_tail = False
+quality_control_fastqs = True
+cut_front = True
+cut_tail = True
 
 # kb count, reference genome
 reference_genome_index = os.path.join(reference_out_dir, "ensembl_grch37_release113", "index.idx")  # can either already exist or will be created; only used if qc_against_gene_matrix=True
@@ -106,9 +106,11 @@ else:
 json_url = f"https://www.ebi.ac.uk/ena/portal/api/filereport?accession={ena_project}&result=read_run&fields=study_accession,sample_accession,experiment_accession,run_accession,scientific_name,library_strategy,experiment_title,experiment_alias,fastq_bytes,fastq_ftp,sra_ftp,sample_title&format=json&download=true&limit=0"
 
 if experiment_aliases_to_keep is not None:
-    if os.path.isfile(experiment_aliases_to_keep):
+    if isinstance(experiment_aliases_to_keep, str) and os.path.isfile(experiment_aliases_to_keep):
         with open(experiment_aliases_to_keep, 'r', encoding="utf-8") as file:
             experiment_aliases_to_keep = {line.strip() for line in file.readlines()}
+
+    experiment_aliases_to_keep = {re.sub(r"[-.:]", "_", experiment_alias) for experiment_alias in experiment_aliases_to_keep}  # replace dash, period, and colon with underscore
 
 # metadata json
 os.makedirs(sequencing_data_out_base, exist_ok=True)
@@ -223,7 +225,7 @@ def download_sequencing_total(
     if download_only:
         return
     
-    if os.path.isfile(vcrs_metadata_df):
+    if isinstance(vcrs_metadata_df, str) and os.path.isfile(vcrs_metadata_df):
         variants = None
     
     if quality_control_fastqs:
