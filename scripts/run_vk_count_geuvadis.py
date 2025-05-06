@@ -58,7 +58,7 @@ reference_genome_fasta = os.path.join(reference_out_dir, "ensembl_grch37_release
 reference_genome_gtf = os.path.join(reference_out_dir, "ensembl_grch37_release113", "Homo_sapiens.GRCh37.87.gtf")  # can either already exist or will be downloaded; only used if qc_against_gene_matrix=True
 
 # clean
-qc_against_gene_matrix = True
+qc_against_gene_matrix = False
 qc_against_gene_matrix_mistake_ratio = 0.5  # None for none
 save_vcf = False
 

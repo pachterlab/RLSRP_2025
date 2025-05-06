@@ -44,7 +44,7 @@ vk_ref_out_parent = os.path.join(data_dir, "vk_ref_out_geuvadis")
 
 sequences = os.path.join(reference_out_dir, "ensembl_grch37_release113", "Homo_sapiens.GRCh37.cdna.all.fa.gz")
 w_and_k_list_of_dicts = [
-    # {"w": 27, "k": 31},
+    {"w": 27, "k": 31},
     {"w": 37, "k": 41},
     {"w": 47, "k": 51},
 ]
@@ -56,7 +56,7 @@ geuvadis_true_vcf = os.path.join(geuvadis_reference_files_dir, f"{geuvadis_refer
 sample_metadata_tsv_file = os.path.join(sequencing_data_out_base, "sample_metadata.tsv")
 
 # fastqpp
-quality_control_fastqs = True
+quality_control_fastqs = False
 cut_front = True
 cut_tail = True
 
