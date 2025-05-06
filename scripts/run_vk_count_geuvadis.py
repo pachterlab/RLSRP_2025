@@ -28,7 +28,7 @@ download_only = False
 delete_fastq_files = False
 overwrite_vk_count = False
 sequencing_data_out_base = os.path.join(data_dir, f"{sequencing_data_base}_data_base")
-experiment_aliases_to_keep = None  # {"E_GEUV_1:HG00377.1.M_120209_6"}  # None to use all
+experiment_aliases_to_keep = {"E_GEUV_1:HG00377.1.M_120209_6"}  # {"E_GEUV_1:HG00377.1.M_120209_6"}  # None to use all
 
 # reference parameters
 vk_ref_out_parent = os.path.join(data_dir, "vk_ref_out_geuvadis")
@@ -41,7 +41,7 @@ w_and_k_list_of_dicts = [
 ]
 
 geuvadis_reference_files_dir = os.path.join(reference_out_dir, "geuvadis")
-variants = os.path.join(geuvadis_reference_files_dir, "variants_transcriptome.csv")
+variants = os.path.join(geuvadis_reference_files_dir, "variants_transcriptome.parquet")
 geuvadis_reference_variants_prefix = os.path.join(geuvadis_reference_files_dir, "1kg_phase1_all")
 geuvadis_true_vcf = os.path.join(geuvadis_reference_files_dir, f"{geuvadis_reference_variants_prefix}.vcf.gz")
 sample_metadata_tsv_file = os.path.join(sequencing_data_out_base, "sample_metadata.tsv")
@@ -58,7 +58,8 @@ reference_genome_fasta = os.path.join(reference_out_dir, "ensembl_grch37_release
 reference_genome_gtf = os.path.join(reference_out_dir, "ensembl_grch37_release113", "Homo_sapiens.GRCh37.87.gtf")  # can either already exist or will be downloaded; only used if qc_against_gene_matrix=True
 
 # clean
-qc_against_gene_matrix = False
+qc_against_gene_matrix = True
+qc_against_gene_matrix_mistake_ratio = 0.5  # None for none
 save_vcf = False
 
 # for qc_against_gene_matrix - same as from vk ref/build (not essential but speeds things up)
@@ -96,7 +97,6 @@ if not os.path.exists(reference_genome_index) or not os.path.exists(reference_ge
     subprocess.run(["kb", "ref", "-t", str(number_of_threads_total), "-i", reference_genome_index, "-g", reference_genome_t2g, "-f1", reference_genome_f1, reference_genome_fasta, reference_genome_gtf], check=True)
 
 #* Geuvadis
-
 geuvadis_ena_project = "PRJEB3366"
 if sequencing_data_base == "geuvadis":
     ena_project = geuvadis_ena_project
@@ -152,6 +152,7 @@ def download_sequencing_total(
     reference_genome_index=False,
     reference_genome_t2g=False,
     qc_against_gene_matrix=False,
+    qc_against_gene_matrix_mistake_ratio=None,
     save_vcf=False,
     vcf_data_csv=None,
     variants=None,
@@ -237,6 +238,7 @@ def download_sequencing_total(
             quality_control_fastqs=quality_control_fastqs,
             cut_front=cut_front,
             cut_tail=cut_tail,
+            length=31,
             quality_control_fastqs_out_dir=quality_control_fastqs_out_dir,
             threads=number_of_threads_per_varseek_count_task,
         )
@@ -267,6 +269,7 @@ def download_sequencing_total(
                 reference_genome_index=reference_genome_index,
                 reference_genome_t2g=reference_genome_t2g,
                 qc_against_gene_matrix=qc_against_gene_matrix,
+                mistake_ratio=qc_against_gene_matrix_mistake_ratio,
                 out=vk_count_out_dir,
                 threads=number_of_threads_per_varseek_count_task,
                 save_vcf=save_vcf,
@@ -279,7 +282,7 @@ def download_sequencing_total(
                 add_hgvs_breakdown_to_adata_var=add_hgvs_breakdown_to_adata_var,
                 vcrs_metadata_df=vcrs_metadata_df,
                 disable_fastqpp=True,
-                disable_clean=True,
+                # disable_clean=True,
                 disable_summarize=True,
             )
 
@@ -333,6 +336,7 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=number_of_tasks) as execu
             reference_genome_index=reference_genome_index,
             reference_genome_t2g=reference_genome_t2g,
             qc_against_gene_matrix=qc_against_gene_matrix,
+            qc_against_gene_matrix_mistake_ratio=qc_against_gene_matrix_mistake_ratio,
             save_vcf=save_vcf,
             variants=variants,
             seq_id_column=seq_id_column,
