@@ -28,7 +28,7 @@ download_only = False
 delete_fastq_files = False
 overwrite_vk_count = False
 sequencing_data_out_base = os.path.join(data_dir, f"{sequencing_data_base}_data_base")
-experiment_aliases_to_keep = {"E_GEUV_1:HG00377.1.M_120209_6"}  # {"E_GEUV_1:HG00377.1.M_120209_6"}  # None to use all
+experiment_aliases_to_keep = None  # {"E_GEUV_1:HG00377.1.M_120209_6"}  # None to use all
 
 # reference parameters
 vk_ref_out_parent = os.path.join(data_dir, "vk_ref_out_geuvadis")
@@ -357,7 +357,7 @@ for w_and_k_dict in w_and_k_list_of_dicts:
     if not os.path.exists(adata_combined_path_vcrs):
         adata_vcrs_list = []
         for sample in os.listdir(sequencing_data_out_base):
-            adata_vcrs_single_path = os.path.join(sequencing_data_out_base, sample, f"vk_count_out_w{w}_k{k}", "kb_count_out_vcrs", "counts_unfiltered", "adata.h5ad")
+            adata_vcrs_single_path = os.path.join(sequencing_data_out_base, sample, f"vk_count_out_w{w}_k{k}", "adata_cleaned.h5ad")    # os.path.join(sequencing_data_out_base, sample, f"vk_count_out_w{w}_k{k}", "kb_count_out_vcrs", "counts_unfiltered", "adata.h5ad")
             if os.path.exists(adata_vcrs_single_path):
                 adata_vcrs_single = ad.read_h5ad(adata_vcrs_single_path)
                 adata_vcrs_single.obs["experiment_alias_underscores_only"] = sample

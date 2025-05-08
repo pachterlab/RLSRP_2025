@@ -37,7 +37,7 @@ overwrite_vk_count = False
 sequencing_data_out_base = os.path.join(data_dir, f"{sequencing_data_base}_data_base")
 geuvadis_rna_json_file = os.path.join(sequencing_data_out_base, f"{sequencing_data_base}_metadata.json")
 metadata_tsv_file = os.path.join(sequencing_data_out_base, "igsr_GRCh38.tsv")  # can be found at https://www.internationalgenome.org/data-portal/data-collection/grch38
-samples_to_keep = {"HG00377"}  # {"E_GEUV_1:HG00377.1.M_120209_6"}  # None to use all
+samples_to_keep = {"HG00377", "HG00327", "NA20502", "HG00102", "HG00369"}  # {"E_GEUV_1:HG00377.1.M_120209_6"}  # None to use all
 
 # reference parameters
 vk_ref_out_parent = os.path.join(data_dir, "vk_ref_out_geuvadis")
@@ -67,7 +67,7 @@ reference_genome_fasta = os.path.join(reference_out_dir, "ensembl_grch37_release
 reference_genome_gtf = os.path.join(reference_out_dir, "ensembl_grch37_release113", "Homo_sapiens.GRCh37.87.gtf")  # can either already exist or will be downloaded; only used if qc_against_gene_matrix=True
 
 # clean
-qc_against_gene_matrix = True
+qc_against_gene_matrix = False
 qc_against_gene_matrix_mistake_ratio = 0.5  # None for none
 save_vcf = False
 
@@ -279,7 +279,6 @@ def download_sequencing_total(
             cut_tail=cut_tail,
             length=31,
             quality_control_fastqs_out_dir=quality_control_fastqs_out_dir,
-            mistake_ratio=qc_against_gene_matrix_mistake_ratio,
             threads=number_of_threads_per_varseek_count_task,
         )
         fastq_dir = quality_control_fastqs_out_dir
@@ -309,7 +308,7 @@ def download_sequencing_total(
                 reference_genome_index=reference_genome_index,
                 reference_genome_t2g=reference_genome_t2g,
                 qc_against_gene_matrix=qc_against_gene_matrix,
-                qc_against_gene_matrix_mistake_ratio=qc_against_gene_matrix_mistake_ratio,
+                mistake_ratio=qc_against_gene_matrix_mistake_ratio,
                 out=vk_count_out_dir,
                 threads=number_of_threads_per_varseek_count_task,
                 save_vcf=save_vcf,
@@ -377,6 +376,7 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=number_of_tasks) as execu
             reference_genome_index=reference_genome_index,
             reference_genome_t2g=reference_genome_t2g,
             qc_against_gene_matrix=qc_against_gene_matrix,
+            qc_against_gene_matrix_mistake_ratio=qc_against_gene_matrix_mistake_ratio,
             save_vcf=save_vcf,
             variants=variants,
             seq_id_column=seq_id_column,
@@ -598,7 +598,7 @@ for w_and_k_dict in w_and_k_list_of_dicts:
     if not os.path.exists(adata_combined_path_vcrs):
         adata_vcrs_list = []
         for sample in os.listdir(sequencing_data_out_base):
-            adata_vcrs_single_path = os.path.join(sequencing_data_out_base, sample, f"vk_count_out_w{w}_k{k}", "kb_count_out_vcrs", "counts_unfiltered", "adata.h5ad")
+            adata_vcrs_single_path = os.path.join(sequencing_data_out_base, sample, f"vk_count_out_w{w}_k{k}", "adata_cleaned.h5ad")    # os.path.join(sequencing_data_out_base, sample, f"vk_count_out_w{w}_k{k}", "kb_count_out_vcrs", "counts_unfiltered", "adata.h5ad")
             if os.path.exists(adata_vcrs_single_path):
                 adata_vcrs_single = ad.read_h5ad(adata_vcrs_single_path)
                 adata_vcrs_single.obs["experiment_alias_underscores_only"] = sample
