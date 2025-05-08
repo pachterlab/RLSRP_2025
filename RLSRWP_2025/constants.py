@@ -22,6 +22,7 @@ box_links_dict = {
     "geuvadis_adata_reference_genome": "xxxxxx",
     "geuvadis_adata_reference_genome_wxs": "xxxxxx",
     "geuvadis_adata_genotype": "xxxxxx",
+    "geuvadis_variants": "https://caltech.box.com/shared/static/w9nas2mjr4j9gip1lvsoqtrb7dwlhe42.parquet",
 }
 
 # entex tissue, ccle primary_disease
