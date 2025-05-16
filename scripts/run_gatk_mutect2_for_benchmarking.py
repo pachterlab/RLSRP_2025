@@ -20,6 +20,7 @@ parser = argparse.ArgumentParser(description="Run GATK Mutect2 on a set of reads
 
 # Paths
 parser.add_argument("--synthetic_read_fastq", help="Path to synthetic read FASTQ")
+parser.add_argument("--synthetic_read_fastq2", help="Path to synthetic read FASTQ paired")
 parser.add_argument("--reference_genome_fasta", help="Path to reference genome fasta")
 parser.add_argument("--reference_genome_gtf", help="Path to reference genome GTF")
 parser.add_argument("--genomes1000_vcf", default="1000GENOMES-phase_3.vcf", help="Path to 1000 genomes vcf file")
@@ -57,6 +58,7 @@ read_length_minus_one = int(args.read_length) - 1
 apply_mutation_filters = args.apply_mutation_filters
 skip_accuracy_analysis = args.skip_accuracy_analysis
 synthetic_read_fastq = args.synthetic_read_fastq
+synthetic_read_fastq2 = args.synthetic_read_fastq2
 aligned_and_unmapped_bam = args.aligned_and_unmapped_bam
 
 STAR = args.STAR
@@ -181,6 +183,9 @@ star_align_command = [
 ]
 if synthetic_read_fastq.endswith(".gz"):
     star_align_command += ["--readFilesCommand", "zcat"]
+if synthetic_read_fastq2 is not None:
+    idx = star_align_command.index(synthetic_read_fastq)
+    star_align_command.insert(idx + 1, synthetic_read_fastq2)
 if not aligned_and_unmapped_bam:
     aligned_and_unmapped_bam = f"{out_file_name_prefix}Aligned.sortedByCoord.out.bam"
 if not os.path.exists(aligned_and_unmapped_bam):
@@ -198,6 +203,8 @@ fastq_to_sam_command = [
     "-PLATFORM", "ILLUMINA",
     "-SEQUENCING_CENTER", "center1"
 ]
+if synthetic_read_fastq2 is not None:
+    fastq_to_sam_command += ["-FASTQ2", synthetic_read_fastq2]
 if not os.path.exists(unmapped_bam):
     run_command_with_error_logging(fastq_to_sam_command)
 
