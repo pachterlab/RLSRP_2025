@@ -33,15 +33,15 @@ reference_out_dir = os.path.join(data_dir, "reference")
 all_supported_tools_to_benchmark = {"varseek", "gatk_haplotypecaller", "gatk_mutect2", "strelka2", "varscan", "deepvariant"}
 tools_that_require_star_alignment = {"gatk_haplotypecaller", "gatk_mutect2", "strelka2", "varscan", "deepvariant"}
 tools_read_counts_limit = {"varseek": float("inf"),
-                                "gatk_haplotypecaller": 64,
-                                "gatk_mutect2": 64,
+                                "gatk_haplotypecaller": float("inf"),  # 64_000_000
+                                "gatk_mutect2": float("inf"),  # 64_000_000
                                 "strelka2": float("inf"),
-                                "varscan": 256,
+                                "varscan": 256_000_000,
                                 "deepvariant": float("inf")}  # don't run if number_of_reads is above this value (will run if less than or equal to)
 
 ### ARGUMENTS ###
 number_of_reads_list = [1, 4, 16, 64, 256, 1024]  # number of reads, in millions  # for debugging: [0.001, 0.002]
-tools_to_benchmark = ["varseek", "gatk_haplotypecaller", "gatk_mutect2", "strelka2", "varscan", "deepvariant"]  # tools to use; to add a tool, you must simply (1) include the tool in all_supported_tools_to_benchmark and tools_to_benchmark, (2) add a condition to run the script with the tool (see the bottom of this file), and (3) write the script that takes in necessary arguments and runs the tool
+tools_to_benchmark = ["gatk_haplotypecaller", "gatk_mutect2"]  #!!! replace with ["varseek", "gatk_haplotypecaller", "gatk_mutect2", "strelka2", "varscan", "deepvariant"]  # tools to use; to add a tool, you must simply (1) include the tool in all_supported_tools_to_benchmark and tools_to_benchmark, (2) add a condition to run the script with the tool (see the bottom of this file), and (3) write the script that takes in necessary arguments and runs the tool
 dry_run = False  # only applies to the variant calling steps, not to the preparation (ie STAR, data downloads, etc)
 
 read_length = 150
@@ -69,12 +69,12 @@ dlist_reference_source = "t2t"
 reference_genome_index_path = os.path.join(reference_out_dir, "ensembl_grch37_release93", "index.idx")  # can either already exist or will be created; only used if qc_against_gene_matrix=True
 reference_genome_t2g_path = os.path.join(reference_out_dir, "ensembl_grch37_release93", "t2g.txt")  # can either already exist or will be created; only used if qc_against_gene_matrix=True
 
-# varseek ref small k
-w_small = 27
-k_small = 31
-vk_ref_small_k_out = os.path.join(data_dir, "vk_ref_small_k_out")
-vk_ref_small_k_index_path = os.path.join(vk_ref_out, "vcrs_index.idx")  # for vk count
-vk_ref_small_k_t2g_path = os.path.join(vk_ref_out, "vcrs_t2g_filtered.txt")  # for vk count
+# # varseek ref small k
+# w_small = 27
+# k_small = 31
+# vk_ref_small_k_out = os.path.join(data_dir, "vk_ref_small_k_out")
+# vk_ref_small_k_index_path = os.path.join(vk_ref_out, "vcrs_index.idx")  # for vk count
+# vk_ref_small_k_t2g_path = os.path.join(vk_ref_out, "vcrs_t2g_filtered.txt")  # for vk count
 
 
 cosmic_mutations_path = os.path.join(reference_out_dir, "cosmic", "CancerMutationCensus_AllData_Tsv_v101_GRCh37", "CancerMutationCensus_AllData_v101_GRCh37_mutation_workflow.csv")  # for vk sim
@@ -96,7 +96,7 @@ STRELKA_INSTALL_PATH = "/home/jmrich/opt/strelka-2.9.10.centos6_x86_64"
 python2_env = "python2_env"
 VARSCAN_INSTALL_PATH = "/home/jmrich/opt/VarScan.v2.3.9.jar"
 
-output_dir = os.path.join(data_dir, "time_and_memory_benchmarking_out_dir_20250324")  #* change for each run
+output_dir = os.path.join(data_dir, "time_and_memory_benchmarking_out_dir_20250520")  #* change for each run
 tmp_dir = "/data/benchmarking_tmp_20250324"  #!! replace with "tmp"
 overwrite = False
 
@@ -210,11 +210,11 @@ if not os.path.exists(vk_ref_index_path) or not os.path.exists(vk_ref_t2g_path):
     vk.ref(variants="cosmic_cmc", sequences="cdna", w=w, k=k, out=vk_ref_out, dlist_reference_source=dlist_reference_source, download=True, index_out=vk_ref_index_path, t2g_out=vk_ref_t2g_path)
     # alternatively, to build from scratch: subprocess.run([os.path.join(script_dir, "run_vk_ref_cosmic.py")], check=True)
 
-if not os.path.exists(vk_ref_small_k_index_path) or not os.path.exists(vk_ref_small_k_t2g_path):
-    try:
-        vk.ref(variants="cosmic_cmc", sequences="cdna", w=w_small, k=k_small, out=vk_ref_out, dlist_reference_source=dlist_reference_source, download=True, index_out=vk_ref_small_k_index_path, t2g_out=vk_ref_small_k_t2g_path)
-    except ValueError:
-        logger.info(f"Cannot download vk ref index/t2g with w={w_small} and k={k_small}. Will skip this condition")
+# if not os.path.exists(vk_ref_small_k_index_path) or not os.path.exists(vk_ref_small_k_t2g_path):
+#     try:
+#         vk.ref(variants="cosmic_cmc", sequences="cdna", w=w_small, k=k_small, out=vk_ref_out, dlist_reference_source=dlist_reference_source, download=True, index_out=vk_ref_small_k_index_path, t2g_out=vk_ref_small_k_t2g_path)
+#     except ValueError:
+#         logger.info(f"Cannot download vk ref index/t2g with w={w_small} and k={k_small}. Will skip this condition")
 
 #* install seqtk if not installed
 # if not is_program_installed(seqtk):
