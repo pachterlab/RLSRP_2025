@@ -305,7 +305,8 @@ haplotypecaller_command = [
     "-I", recalibrated_bam,
     "-O", haplotypecaller_unfiltered_vcf,
     "--dont-use-soft-clipped-bases",
-    "--standard-min-confidence-threshold-for-calling", "10"
+    "--standard-min-confidence-threshold-for-calling", "10",
+    "--native-pair-hmm-threads", str(threads)
 ]
 if dont_disable_tool_default_read_filters:
     haplotypecaller_command += ["--disable-tool-default-read-filters"]

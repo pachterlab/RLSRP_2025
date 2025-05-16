@@ -28,8 +28,8 @@ reference_out_dir = os.path.join(data_dir, "reference")
 sequencing_data_base = "geuvadis"
 technology = "bulk"
 parity = "paired"
-number_of_threads_total = 32  # if too high (e.g., 64), then will not be able to download successfully (server error) - 8 seems like the sweet spot
-number_of_threads_per_varseek_count_task = 32
+number_of_threads_total = 16  # if too high (e.g., 64), then will not be able to download successfully (server error) - 8 seems like the sweet spot
+number_of_threads_per_varseek_count_task = 16
 max_retries = 5
 download_only = False
 delete_fastq_files = False
@@ -56,7 +56,7 @@ geuvadis_true_vcf = os.path.join(geuvadis_reference_files_dir, f"{geuvadis_refer
 sample_metadata_tsv_file = os.path.join(sequencing_data_out_base, "sample_metadata.tsv")
 
 # fastqpp
-quality_control_fastqs = False
+quality_control_fastqs = True
 cut_front = True
 cut_tail = True
 

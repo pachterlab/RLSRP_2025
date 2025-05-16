@@ -301,7 +301,8 @@ mutect2_command = [
     "-R", reference_genome_fasta,
     "-I", recalibrated_bam,
     "-O", mutect2_unfiltered_vcf,
-    "--min-base-quality-score", "10"
+    "--min-base-quality-score", "10",
+    "--native-pair-hmm-threads", str(threads)
 ]
 if not os.path.exists(mutect2_unfiltered_vcf):
     run_command_with_error_logging(mutect2_command)
