@@ -33,8 +33,8 @@ reference_out_dir = os.path.join(data_dir, "reference")
 all_supported_tools_to_benchmark = {"varseek", "gatk_haplotypecaller", "gatk_mutect2", "strelka2", "varscan", "deepvariant"}
 tools_that_require_star_alignment = {"gatk_haplotypecaller", "gatk_mutect2", "strelka2", "varscan", "deepvariant"}
 tools_read_counts_limit = {"varseek": float("inf"),
-                                "gatk_haplotypecaller": float("inf"),  # 64_000_000
-                                "gatk_mutect2": float("inf"),  # 64_000_000
+                                "gatk_haplotypecaller": 256_000_000,
+                                "gatk_mutect2": 256_000_000,
                                 "strelka2": float("inf"),
                                 "varscan": 256_000_000,
                                 "deepvariant": float("inf")}  # don't run if number_of_reads is above this value (will run if less than or equal to)

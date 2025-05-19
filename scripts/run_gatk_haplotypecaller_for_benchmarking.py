@@ -30,6 +30,7 @@ parser.add_argument("--out", default="out", help="Path to out folder")
 # Parameters
 parser.add_argument("--threads", default=2, help="Number of threads")
 parser.add_argument("--read_length", default=150, help="Read length")
+parser.add_argument("--limitSjdbInsertNsj", default=1000000, help="Limit SjdbInsertNsj")
 parser.add_argument("--apply_mutation_filters", action="store_true", help="Use filtered vcf for accuracy analysis (otherwise use unfiltered)")
 parser.add_argument("--dont_disable_tool_default_read_filters", action="store_true", help="Disable tool default read filters")
 parser.add_argument("--skip_accuracy_analysis", action="store_true", help="Skip accuracy analysis (beyond simple time and memory benchmarking)")
@@ -61,6 +62,7 @@ skip_accuracy_analysis = args.skip_accuracy_analysis
 synthetic_read_fastq = args.synthetic_read_fastq
 synthetic_read_fastq2 = args.synthetic_read_fastq2
 aligned_and_unmapped_bam = args.aligned_and_unmapped_bam
+limitSjdbInsertNsj = args.limitSjdbInsertNsj
 
 STAR = args.STAR
 java = args.java
@@ -180,7 +182,8 @@ star_align_command = [
     "--outSAMtype", "BAM", "SortedByCoordinate",
     "--outSAMunmapped", "Within",
     "--outSAMmapqUnique", "60",
-    "--twopassMode", "Basic"
+    "--twopassMode", "Basic",
+    "--limitSjdbInsertNsj", limitSjdbInsertNsj
 ]
 if synthetic_read_fastq.endswith(".gz"):
     star_align_command += ["--readFilesCommand", "zcat"]
