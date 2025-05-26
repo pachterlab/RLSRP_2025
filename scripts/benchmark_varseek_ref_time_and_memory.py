@@ -37,10 +37,8 @@ varseek_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 output_dir = os.path.join(data_dir, "time_and_memory_benchmarking_out_dir_vk_ref")  #* change for each run
 tmp_dir = "/data/benchmarking_vk_ref_tmp"  #!! replace with "tmp"
 
-vk_ref_out_dir = os.path.join(tmp_dir, "vk_ref_benchmarking")
-
 random_seed = 42
-vk_ref_script_path = os.path.join(script_dir, "run_varseek_ref_for_benchmarking_time_and_memory.py")
+vk_ref_script_path = os.path.join(script_dir, "run_varseek_ref_for_benchmarking.py")
 
 # download reference genome
 if not os.path.isfile(sequences_fasta_path):
@@ -82,13 +80,20 @@ if not os.path.isfile(cosmic_mutations_path):
     )
 
 logger.info("Loading in COSMIC mutations")
-cosmic_df = pd.read_csv(cosmic_mutations_path)
+cosmic_df = pd.read_csv(cosmic_mutations_path, usecols=["seq_ID", "mutation"])  #!!! uncomment
+
+os.makedirs(tmp_dir, exist_ok=True)
 
 for number_of_variants in number_of_variants_list:
-    logger.info(f"Subsampling {number_of_variants} variants")
     number_of_variants *= 1000
-    cosmic_df_subsampled = cosmic_df.sample(n=number_of_variants, random_state=random_seed)
+    logger.info(f"Subsampling {number_of_variants} variants")
+    tmp_dir_specific_run = os.path.join(tmp_dir, f"vk_ref_{number_of_variants}_variants")
+    cosmic_df_subsampled_path = os.path.join(tmp_dir_specific_run, f"cosmic_subsampled_{number_of_variants}_variants.csv")
+    if not os.path.exists(cosmic_df_subsampled_path):
+        cosmic_df_subsampled = cosmic_df.sample(n=number_of_variants, random_state=random_seed)
+        cosmic_df_subsampled.to_csv(cosmic_df_subsampled_path, index=False)
+    
     output_file = os.path.join(output_dir, f"vk_ref_threads_{threads}_variants_{number_of_variants}_time_and_memory.txt")
-    argparse_flags = f"-v {cosmic_df_subsampled} -s {sequences_fasta_path} -o {vk_ref_out_dir} --seq_id_column seq_ID --var_column mutation --reference_out_dir {reference_out_dir} --dlist_reference_source t2t --threads {threads}"  # make sure to provide all keyword args with two-dashes (ie full argument name)
+    argparse_flags = f"--variants {cosmic_df_subsampled_path} --sequences {sequences_fasta_path} --out {tmp_dir_specific_run} --seq_id_column seq_ID --var_column mutation --reference_out_dir {reference_out_dir} --dlist_reference_source t2t --threads {threads}"  # make sure to provide all keyword args with two-dashes (ie full argument name)
     report_time_and_memory_of_script(vk_ref_script_path, output_file = output_file, argparse_flags = argparse_flags)
 
