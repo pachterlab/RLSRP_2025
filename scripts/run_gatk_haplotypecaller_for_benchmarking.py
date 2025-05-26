@@ -26,6 +26,7 @@ parser.add_argument("--genomes1000_vcf", default="1000GENOMES-phase_3.vcf", help
 parser.add_argument("--star_genome_dir", default="", help="Path to star_genome_dir")
 parser.add_argument("--aligned_and_unmapped_bam", default="", help="Path to aligned_and_unmapped_bam. If not provided, will be created")
 parser.add_argument("--out", default="out", help="Path to out folder")
+parser.add_argument("--tmp_dir", default=None, help="Path to tmp folder")
 
 # Parameters
 parser.add_argument("--threads", default=2, help="Number of threads")
@@ -52,6 +53,7 @@ args = parser.parse_args()
 
 star_genome_dir = args.star_genome_dir if args.star_genome_dir else os.path.join(args.out, "star_genome")
 gatk_parent = args.out
+tmp_dir = args.tmp_dir
 reference_genome_fasta = args.reference_genome_fasta
 reference_genome_gtf = args.reference_genome_gtf
 genomes1000_vcf = args.genomes1000_vcf
@@ -212,6 +214,8 @@ fastq_to_sam_command = [
 ]
 if synthetic_read_fastq2 is not None:
     fastq_to_sam_command += ["-FASTQ2", synthetic_read_fastq2]
+if tmp_dir:
+    fastq_to_sam_command += ["-TMP_DIR", tmp_dir]
 if not os.path.exists(unmapped_bam):
     run_command_with_error_logging(fastq_to_sam_command)
 
@@ -235,6 +239,8 @@ merge_bam_alignment_command = [
     "--INCLUDE_SECONDARY_ALIGNMENTS", "false",
     "--VALIDATION_STRINGENCY", "SILENT"
 ]
+if tmp_dir:
+    merge_bam_alignment_command += ["--TMP_DIR", tmp_dir]
 if not os.path.exists(merged_bam):
     run_command_with_error_logging(merge_bam_alignment_command)
 
@@ -247,6 +253,8 @@ mark_duplicates_command = [
     "--CREATE_INDEX", "true",
     "--VALIDATION_STRINGENCY", "SILENT"
 ]
+if tmp_dir:
+    mark_duplicates_command += ["--TMP_DIR", tmp_dir]
 if not os.path.exists(marked_duplicates_bam):
     run_command_with_error_logging(mark_duplicates_command)
 
@@ -257,6 +265,8 @@ split_n_cigar_reads_command = [
     "-I", marked_duplicates_bam,
     "-O", split_n_cigar_reads_bam
 ]
+if tmp_dir:
+    split_n_cigar_reads_command += ["--tmp-dir", tmp_dir]
 if not os.path.exists(split_n_cigar_reads_bam):
     run_command_with_error_logging(split_n_cigar_reads_command)
 
@@ -277,6 +287,8 @@ base_recalibrator_command = [
     "--known-sites", genomes1000_vcf,
     "-O", recal_data_table
 ]
+if tmp_dir:
+    base_recalibrator_command += ["--TMP_DIR", tmp_dir]
 if not os.path.exists(recal_data_table):
     run_command_with_error_logging(base_recalibrator_command)
 
@@ -316,6 +328,8 @@ haplotypecaller_command = [
 ]
 if dont_disable_tool_default_read_filters:
     haplotypecaller_command += ["--disable-tool-default-read-filters"]
+if tmp_dir:
+    haplotypecaller_command += ["--tmp-dir", tmp_dir]
 if not os.path.exists(haplotypecaller_unfiltered_vcf):
     run_command_with_error_logging(haplotypecaller_command)
 
@@ -333,19 +347,23 @@ variantfiltration_command = [
     "--filter-name", "QD",
     "--filter", "QD < 2.0"
 ]
+if tmp_dir:
+    variantfiltration_command += ["--TMP_DIR", tmp_dir]
 if not os.path.exists(haplotypecaller_filtered_vcf):
     run_command_with_error_logging(variantfiltration_command)
 
 #* SelectVariants
-selectvariants_command = [
+select_variants_command = [
     gatk,
     "SelectVariants",
     "-V", haplotypecaller_filtered_vcf,
     "--exclude-filtered", "true",
     "-O", haplotypecaller_filtered_applied_vcf
 ]
+if tmp_dir:
+    select_variants_command += ["--tmp-dir", tmp_dir]
 if not os.path.exists(haplotypecaller_filtered_applied_vcf):
-    run_command_with_error_logging(selectvariants_command)
+    run_command_with_error_logging(select_variants_command)
 
 if skip_accuracy_analysis:
     print("Skipping accuracy analysis")
