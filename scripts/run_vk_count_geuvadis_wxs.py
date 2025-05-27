@@ -597,8 +597,8 @@ for w_and_k_dict in w_and_k_list_of_dicts:
     adata_combined_path_vcrs = os.path.join(sequencing_data_out_base, f"adata_vcrs_combined_w{w}_k{k}_wxs.h5ad")
     if not os.path.exists(adata_combined_path_vcrs):
         adata_vcrs_list = []
-        for sample in os.listdir(sequencing_data_out_base):
-            adata_vcrs_single_path = os.path.join(sequencing_data_out_base, sample, f"vk_count_out_w{w}_k{k}", "adata_cleaned.h5ad")    # os.path.join(sequencing_data_out_base, sample, f"vk_count_out_w{w}_k{k}", "kb_count_out_vcrs", "counts_unfiltered", "adata.h5ad")
+        for sample in os.listdir(os.path.join(sequencing_data_out_base, "wxs")):
+            adata_vcrs_single_path = os.path.join(sequencing_data_out_base, "wxs", sample, "combined", f"vk_count_out_w{w}_k{k}", "adata_cleaned.h5ad")    # os.path.join(sequencing_data_out_base, sample, f"vk_count_out_w{w}_k{k}", "kb_count_out_vcrs", "counts_unfiltered", "adata.h5ad")
             if os.path.exists(adata_vcrs_single_path):
                 adata_vcrs_single = ad.read_h5ad(adata_vcrs_single_path)
                 adata_vcrs_single.obs["experiment_alias_underscores_only"] = sample
@@ -608,9 +608,9 @@ for w_and_k_dict in w_and_k_list_of_dicts:
 
         adata_vcrs.obs = adata_vcrs.obs.merge(
             json_df[['experiment_accession', 'library_strategy', 'sample_title', 
-                    'Sex', 'Biosample ID', 'Population name', 'Superpopulation name', 
-                    'experiment_alias_underscores_only']],
-            on='experiment_alias_underscores_only', 
+                    'Sex', 'Biosample ID', 'Population name', 'Superpopulation name']].drop_duplicates(subset="sample_title", keep="first"),
+            left_on='experiment_alias_underscores_only',
+            right_on='sample_title', 
             how='left'
         )
         adata_vcrs.obs.index = adata_vcrs.obs.index.astype(str)
@@ -623,8 +623,8 @@ for w_and_k_dict in w_and_k_list_of_dicts:
 adata_combined_path_reference_genome = os.path.join(sequencing_data_out_base, "adata_reference_genome_combined_wxs.h5ad")
 if not os.path.exists(adata_combined_path_reference_genome):
     adata_reference_genome_list = []
-    for sample in os.listdir(sequencing_data_out_base):
-        adata_reference_genome_single_path = os.path.join(sequencing_data_out_base, sample, "kb_count_out_reference_genome", "counts_unfiltered", "adata.h5ad")
+    for sample in os.listdir(os.path.join(sequencing_data_out_base, "wxs")):
+        adata_reference_genome_single_path = os.path.join(sequencing_data_out_base, "wxs", sample, "combined", "kb_count_out_reference_genome", "counts_unfiltered", "adata.h5ad")
         if os.path.exists(adata_reference_genome_single_path):
             adata_reference_genome_single = ad.read_h5ad(adata_reference_genome_single_path)
             adata_reference_genome_single.obs["experiment_alias_underscores_only"] = sample
@@ -634,9 +634,9 @@ if not os.path.exists(adata_combined_path_reference_genome):
 
     adata_reference_genome.obs = adata_reference_genome.obs.merge(
         json_df[['experiment_accession', 'library_strategy', 'sample_title', 
-                'Sex', 'Biosample ID', 'Population name', 'Superpopulation name', 
-                'experiment_alias_underscores_only']],
-        on='experiment_alias_underscores_only', 
+                'Sex', 'Biosample ID', 'Population name', 'Superpopulation name']].drop_duplicates(subset="sample_title", keep="first"),
+        left_on='experiment_alias_underscores_only',
+        right_on='sample_title', 
         how='left'
     )
     adata_reference_genome.obs.index = adata_reference_genome.obs.index.astype(str)

@@ -1039,7 +1039,7 @@ def plot_frequency_histogram(unique_mcrs_df, column_base, tools, fraction=False,
     plt.close()
 
 
-def plot_time_and_memory_benchmarking(df, metric_name, units=None, log_x=False, log_y=False, x_col="Reads", y_col="Value_total", y_thresholds=None, plot_extrapolated=False, output_file=None, show=True):
+def plot_time_and_memory_benchmarking(df, metric_name, units=None, log_x=False, log_y=False, x_col="Reads", x_col_units="millions", y_col="Value_total", y_thresholds=None, y_min=None, title=None, plot_extrapolated=False, output_file=None, show=True):
     df = df.copy()  # make a copy to avoid modifying the original DataFrame
     df = df.loc[df["Metric"] == metric_name]
 
@@ -1049,7 +1049,14 @@ def plot_time_and_memory_benchmarking(df, metric_name, units=None, log_x=False, 
     tools = df["Tool"].unique()
     tool_colors = {tool: color_map_20[i % len(color_map_20)] for i, tool in enumerate(tools)}
 
-    df[x_col] /= 1_000_000  # Convert to millions
+    if x_col_units is None:
+        pass
+    elif x_col_units == "thousands":
+        df[x_col] /= 1_000  # Convert to millions
+    elif x_col_units == "millions":
+        df[x_col] /= 1_000_000  # Convert to millions
+    else:
+        raise ValueError(f"Invalid x_col_units: {x_col_units}. Valid options are None, 'thousands' or 'millions'.")
     x_ticks = sorted(df[x_col].unique())
     
     plt.figure(figsize=(6, 4))  # Adjust figure size
@@ -1095,9 +1102,16 @@ def plot_time_and_memory_benchmarking(df, metric_name, units=None, log_x=False, 
         ylabel += f" ({units})"
     
     plt.grid(which="major", axis="y", linestyle="--", linewidth=0.7, color="gray", alpha=0.6)
-    plt.xlabel("Number of Reads (millions)")
+    xlabel = f"Number of {x_col}"
+    if x_col_units:
+        xlabel += f" ({x_col_units})"
+    plt.xlabel(xlabel)
     plt.xticks(x_ticks)  # Set only the unique "Reads" values as x-ticks  (eg the only ticks marked are 1, 4, 16, 64, etc)
     plt.ylabel(ylabel)
+    if title is True:
+        plt.title(f"{metric_name} vs {xlabel}")
+    elif isinstance(title, str):
+        plt.title(title)
     if log_x:
         plt.xscale("log")
         plt.gca().xaxis.set_major_formatter(FuncFormatter(lambda x, _: f"{int(x)}"))
@@ -1119,6 +1133,8 @@ def plot_time_and_memory_benchmarking(df, metric_name, units=None, log_x=False, 
                 ha='right', 
                 va='bottom'  # Position text above the line
             )
+    if y_min is not None:
+        plt.ylim(bottom=y_min)
     # plt.legend(loc="upper left", fontsize=8)
     # plt.title(f"{metric_name} vs Number of Reads")
     # plt.ticklabel_format(style="plain", axis="x")  # remove the 1e7 in the bottom right

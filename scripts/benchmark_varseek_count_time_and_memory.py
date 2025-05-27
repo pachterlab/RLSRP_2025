@@ -96,7 +96,7 @@ STRELKA_INSTALL_PATH = "/home/jmrich/opt/strelka-2.9.10.centos6_x86_64"
 python2_env = "python2_env"
 VARSCAN_INSTALL_PATH = "/home/jmrich/opt/VarScan.v2.3.9.jar"
 
-output_dir = os.path.join(data_dir, "time_and_memory_benchmarking_out_dir_20250520")  #* change for each run
+output_dir = os.path.join(data_dir, "Fig2")  #* change for each run
 tmp_dir = "/data/benchmarking_tmp_20250324"  #!! replace with "tmp"
 overwrite = False
 
