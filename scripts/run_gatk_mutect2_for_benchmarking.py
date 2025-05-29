@@ -32,9 +32,10 @@ parser.add_argument("--tmp_dir", default=None, help="Path to tmp folder")
 # Parameters
 parser.add_argument("--threads", default=2, help="Number of threads")
 parser.add_argument("--read_length", default=150, help="Read length")
-parser.add_argument("--limitSjdbInsertNsj", default=1000000, help="Limit SjdbInsertNsj")
-parser.add_argument("--limitBAMsortRAM", default=0, help="limitBAMsortRAM")
+parser.add_argument("--limitSjdbInsertNsj", default='1000000', help="Limit SjdbInsertNsj")
+parser.add_argument("--limitBAMsortRAM", default='0', help="limitBAMsortRAM")
 parser.add_argument("--apply_mutation_filters", action="store_true", help="Use filtered vcf for accuracy analysis (otherwise use unfiltered)")
+parser.add_argument("--disable_tool_default_read_filters", action="store_true", help="Disable tool default read filters")
 parser.add_argument("--skip_accuracy_analysis", action="store_true", help="Skip accuracy analysis (beyond simple time and memory benchmarking)")
 
 # Executables
@@ -60,12 +61,13 @@ genomes1000_vcf = args.genomes1000_vcf
 threads = args.threads
 read_length_minus_one = int(args.read_length) - 1
 apply_mutation_filters = args.apply_mutation_filters
+disable_tool_default_read_filters = args.disable_tool_default_read_filters
 skip_accuracy_analysis = args.skip_accuracy_analysis
 synthetic_read_fastq = args.synthetic_read_fastq
 synthetic_read_fastq2 = args.synthetic_read_fastq2
 aligned_and_unmapped_bam = args.aligned_and_unmapped_bam
-limitSjdbInsertNsj = args.limitSjdbInsertNsj
-limitBAMsortRAM = args.limitBAMsortRAM
+limitSjdbInsertNsj = str(args.limitSjdbInsertNsj)
+limitBAMsortRAM = str(args.limitBAMsortRAM)
 
 STAR = args.STAR
 java = args.java
@@ -287,7 +289,7 @@ base_recalibrator_command = [
     "-O", recal_data_table
 ]
 if tmp_dir:
-    base_recalibrator_command += ["--TMP_DIR", tmp_dir]
+    base_recalibrator_command += ["--tmp-dir", tmp_dir]
 if not os.path.exists(recal_data_table):
     run_command_with_error_logging(base_recalibrator_command)
 
@@ -319,9 +321,12 @@ mutect2_command = [
     "-R", reference_genome_fasta,
     "-I", recalibrated_bam,
     "-O", mutect2_unfiltered_vcf,
+    "--dont-use-soft-clipped-bases",
     "--min-base-quality-score", "10",
     "--native-pair-hmm-threads", str(threads)
 ]
+if disable_tool_default_read_filters:
+    mutect2_command += ["--disable-tool-default-read-filters"]
 if tmp_dir:
     mutect2_command += ["--tmp-dir", tmp_dir]
 if not os.path.exists(mutect2_unfiltered_vcf):
