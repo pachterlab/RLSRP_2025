@@ -32,13 +32,15 @@ experiment_aliases_to_keep = None  # {"E_GEUV_1:HG00377.1.M_120209_6"}  # None t
 
 # reference parameters
 vk_ref_out_parent = os.path.join(data_dir, "vk_ref_out_geuvadis")
+downsampled_fractions = [0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64]  # [1.0]
 
 sequences = os.path.join(reference_out_dir, "ensembl_grch37_release113", "Homo_sapiens.GRCh37.cdna.all.fa.gz")
-w_and_k_list_of_dicts = [
-    {"w": 27, "k": 31},
-    {"w": 37, "k": 41},
-    {"w": 47, "k": 51},
-]
+w_and_k_list_of_dicts = [{"w": 37, "k": 41}]
+# w_and_k_list_of_dicts = [
+#     {"w": 27, "k": 31},
+#     {"w": 37, "k": 41},
+#     {"w": 47, "k": 51},
+# ]
 
 geuvadis_reference_files_dir = os.path.join(reference_out_dir, "geuvadis")
 variants = os.path.join(geuvadis_reference_files_dir, "variants_transcriptome.parquet")
@@ -163,10 +165,14 @@ def download_sequencing_total(
     add_hgvs_breakdown_to_adata_var=None,
     vcrs_metadata_df=None,
     number_of_threads_per_varseek_count_task=2,
+    downsampled_fractions=None
 ):
     experiment_alias = record.get('experiment_alias')
     experiment_alias_underscores_only = re.sub(r"[-.:]", "_", experiment_alias)
     sample = experiment_alias_underscores_only  # f"{experiment_alias_underscores_only}___{sample_accession}___{experiment_accession}___{run_accession}"
+
+    if downsampled_fractions is None:
+        downsampled_fractions = [1.0]  # default to no downsampling
 
     if sample in {"E_GEUV_1_NA20527_1_M_111124_6"}:
         return  # bad sample - has 3 FASTQs
@@ -228,90 +234,107 @@ def download_sequencing_total(
     
     if isinstance(vcrs_metadata_df, str) and os.path.isfile(vcrs_metadata_df):
         variants = None
+
+    downsampled_seed = 42
+    for downsampled_fraction in downsampled_fractions:
+        if downsampled_fraction < 1.0:
+            downsampled_fraction_str = str(downsampled_fraction).replace('.', '_')
+            sample_out_folder_downsampled = os.path.join(sample_out_folder, f"downsampled_{downsampled_fraction_str}")
+            os.makedirs(sample_out_folder_downsampled, exist_ok=True)
+
+            # loop through fastq files in sample_out_folder and downsample them
+            for fname in os.listdir(sample_out_folder):
+                fastq_original_full_path = os.path.join(sample_out_folder, fname)
+                if os.path.isfile(fastq_original_full_path) and fname.endswith((".fastq", ".fq", ".fastq.gz", ".fq.gz")):            
+                    fastq_downsampled_full_path = os.path.join(sample_out_folder_downsampled, fname)
+                    if not os.path.exists(fastq_downsampled_full_path):
+                        downsample_command = f"seqtk seq -s {downsampled_seed} -f {downsampled_fraction} {fastq_original_full_path} | gzip > {fastq_downsampled_full_path}"
+                        subprocess.run(downsample_command, shell=True, check=True)
+        else:
+            sample_out_folder_downsampled = sample_out_folder
     
-    if quality_control_fastqs:
-        quality_control_fastqs_out_dir = os.path.join(sample_out_folder, "fastqs_quality_controlled")
-        vk.fastqpp(
-            sample_out_folder,
-            technology=technology,
-            parity=parity,
-            quality_control_fastqs=quality_control_fastqs,
-            cut_front=cut_front,
-            cut_tail=cut_tail,
-            length=31,
-            quality_control_fastqs_out_dir=quality_control_fastqs_out_dir,
-            threads=number_of_threads_per_varseek_count_task,
-        )
-        fastq_dir = quality_control_fastqs_out_dir
-        for file in os.listdir(fastq_dir):
-            if file.endswith(".fastq.gz") or file.endswith(".fastq") or file.endswith(".fq.gz") or file.endswith(".fq"):
-                fastq_files.append(os.path.join(fastq_dir, file))
-    else:
-        fastq_dir = sample_out_folder
-    
-    for w_and_k_dict in w_and_k_list_of_dicts:
-        w, k = w_and_k_dict["w"], w_and_k_dict["k"]
-        vk_ref_out = os.path.join(vk_ref_out_parent, f"w{w}_k{k}")
-        vcrs_index = os.path.join(vk_ref_out, "vcrs_index.idx")
-        vcrs_t2g = os.path.join(vk_ref_out, "vcrs_t2g_filtered.txt")
-        
-        vk_count_out_dir = os.path.join(sample_out_folder, f"vk_count_out_w{w}_k{k}")
-        adata_cleaned_out = os.path.join(vk_count_out_dir, "adata_cleaned.h5ad")
-        if not os.path.exists(adata_cleaned_out) or overwrite_vk_count:
-            print(f"Running vk.count on {sample}")
-            vk_count_output_dict = vk.count(
-                fastq_dir,
-                index=vcrs_index,
-                t2g=vcrs_t2g,
+        if quality_control_fastqs:
+            quality_control_fastqs_out_dir = os.path.join(sample_out_folder_downsampled, "fastqs_quality_controlled")
+            vk.fastqpp(
+                sample_out_folder_downsampled,
                 technology=technology,
                 parity=parity,
-                k=k,
-                reference_genome_index=reference_genome_index,
-                reference_genome_t2g=reference_genome_t2g,
-                qc_against_gene_matrix=qc_against_gene_matrix,
-                mistake_ratio=qc_against_gene_matrix_mistake_ratio,
-                out=vk_count_out_dir,
+                quality_control_fastqs=quality_control_fastqs,
+                cut_front=cut_front,
+                cut_tail=cut_tail,
+                quality_control_fastqs_out_dir=quality_control_fastqs_out_dir,
                 threads=number_of_threads_per_varseek_count_task,
-                save_vcf=save_vcf,
-                vcf_data_csv=vcf_data_csv,
-                variants=variants,
-                seq_id_column=seq_id_column,
-                var_column=var_column,
-                gene_id_column=gene_id_column,
-                variants_usecols=variants_usecols,
-                add_hgvs_breakdown_to_adata_var=add_hgvs_breakdown_to_adata_var,
-                vcrs_metadata_df=vcrs_metadata_df,
-                disable_fastqpp=True,
-                # disable_clean=True,
-                disable_summarize=True,
             )
-
-            print(f"Finished vk.count on {sample}")
+            fastq_dir = quality_control_fastqs_out_dir
+            for file in os.listdir(fastq_dir):
+                if file.endswith(".fastq.gz") or file.endswith(".fastq") or file.endswith(".fq.gz") or file.endswith(".fq"):
+                    fastq_files.append(os.path.join(fastq_dir, file))
+        else:
+            fastq_dir = sample_out_folder
         
-    kb_count_out_reference_genome = os.path.join(sample_out_folder, "kb_count_out_reference_genome")
-    if not os.path.exists(kb_count_out_reference_genome) or len(os.listdir(kb_count_out_reference_genome)) == 0 or overwrite_vk_count:
-        os.makedirs(kb_count_out_reference_genome, exist_ok=True)
-        fastqs_final = [os.path.join(fastq_dir, f) for f in os.listdir(fastq_dir) if (f.endswith(".fastq") or f.endswith(".fastq.gz") or f.endswith(".fq") or f.endswith(".fq.gz"))]
-        kb_count_standard_index_command = [
-            "kb",
-            "count",
-            "-t",
-            str(number_of_threads_per_varseek_count_task),
-            "-i",
-            reference_genome_index,
-            "-g",
-            reference_genome_t2g,
-            "-x",
-            technology,
-            "--h5ad",
-            "--parity",
-            parity,
-            "-o",
-            kb_count_out_reference_genome,
-            "--overwrite",
-        ] + fastqs_final
-        print(f"Running kb count on {sample} against reference genome")
-        subprocess.run(kb_count_standard_index_command, check=True)
+        for w_and_k_dict in w_and_k_list_of_dicts:
+            w, k = w_and_k_dict["w"], w_and_k_dict["k"]
+            vk_ref_out = os.path.join(vk_ref_out_parent, f"w{w}_k{k}")
+            vcrs_index = os.path.join(vk_ref_out, "vcrs_index.idx")
+            vcrs_t2g = os.path.join(vk_ref_out, "vcrs_t2g_filtered.txt")
+            
+            vk_count_out_dir = os.path.join(sample_out_folder_downsampled, f"vk_count_out_w{w}_k{k}")
+            adata_cleaned_out = os.path.join(vk_count_out_dir, "adata_cleaned.h5ad")
+            if not os.path.exists(adata_cleaned_out) or overwrite_vk_count:
+                print(f"Running vk.count on {sample}")
+                vk_count_output_dict = vk.count(
+                    fastq_dir,
+                    index=vcrs_index,
+                    t2g=vcrs_t2g,
+                    technology=technology,
+                    parity=parity,
+                    k=k,
+                    reference_genome_index=reference_genome_index,
+                    reference_genome_t2g=reference_genome_t2g,
+                    qc_against_gene_matrix=qc_against_gene_matrix,
+                    mistake_ratio=qc_against_gene_matrix_mistake_ratio,
+                    out=vk_count_out_dir,
+                    threads=number_of_threads_per_varseek_count_task,
+                    save_vcf=save_vcf,
+                    vcf_data_csv=vcf_data_csv,
+                    variants=variants,
+                    seq_id_column=seq_id_column,
+                    var_column=var_column,
+                    gene_id_column=gene_id_column,
+                    variants_usecols=variants_usecols,
+                    add_hgvs_breakdown_to_adata_var=add_hgvs_breakdown_to_adata_var,
+                    vcrs_metadata_df=vcrs_metadata_df,
+                    disable_fastqpp=True,
+                    # disable_clean=True,
+                    disable_summarize=True,
+                )
+
+                print(f"Finished vk.count on {sample}")
+            
+        kb_count_out_reference_genome = os.path.join(sample_out_folder_downsampled, "kb_count_out_reference_genome")
+        if not os.path.exists(kb_count_out_reference_genome) or len(os.listdir(kb_count_out_reference_genome)) == 0 or overwrite_vk_count:
+            os.makedirs(kb_count_out_reference_genome, exist_ok=True)
+            fastqs_final = [os.path.join(fastq_dir, f) for f in os.listdir(fastq_dir) if (f.endswith(".fastq") or f.endswith(".fastq.gz") or f.endswith(".fq") or f.endswith(".fq.gz"))]
+            kb_count_standard_index_command = [
+                "kb",
+                "count",
+                "-t",
+                str(number_of_threads_per_varseek_count_task),
+                "-i",
+                reference_genome_index,
+                "-g",
+                reference_genome_t2g,
+                "-x",
+                technology,
+                "--h5ad",
+                "--parity",
+                parity,
+                "-o",
+                kb_count_out_reference_genome,
+                "--overwrite",
+            ] + fastqs_final
+            print(f"Running kb count on {sample} against reference genome")
+            subprocess.run(kb_count_standard_index_command, check=True)
 
     if delete_fastq_files:
         for fastq_file in fastq_files:
@@ -345,60 +368,123 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=number_of_tasks) as execu
             variants_usecols=variants_usecols,
             add_hgvs_breakdown_to_adata_var=add_hgvs_breakdown_to_adata_var,
             number_of_threads_per_varseek_count_task=number_of_threads_per_varseek_count_task,
+            downsampled_fractions=downsampled_fractions,
         )
         for record in data_list_to_run
     ]
 
     concurrent.futures.wait(futures)
 
-for w_and_k_dict in w_and_k_list_of_dicts:
-    w, k = w_and_k_dict["w"], w_and_k_dict["k"]
-    adata_combined_path_vcrs = os.path.join(sequencing_data_out_base, f"adata_vcrs_combined_w{w}_k{k}.h5ad")
-    if not os.path.exists(adata_combined_path_vcrs):
-        adata_vcrs_list = []
+if 1.0 in downsampled_fractions:
+    for w_and_k_dict in w_and_k_list_of_dicts:
+        w, k = w_and_k_dict["w"], w_and_k_dict["k"]
+        adata_combined_path_vcrs = os.path.join(sequencing_data_out_base, f"adata_vcrs_combined_w{w}_k{k}.h5ad")
+        if not os.path.exists(adata_combined_path_vcrs):
+            adata_vcrs_list = []
+            for sample in os.listdir(sequencing_data_out_base):
+                adata_vcrs_single_path = os.path.join(sequencing_data_out_base, sample, f"vk_count_out_w{w}_k{k}", "adata_cleaned.h5ad")    # os.path.join(sequencing_data_out_base, sample, f"vk_count_out_w{w}_k{k}", "kb_count_out_vcrs", "counts_unfiltered", "adata.h5ad")
+                if os.path.exists(adata_vcrs_single_path):
+                    adata_vcrs_single = ad.read_h5ad(adata_vcrs_single_path)
+                    adata_vcrs_single.obs["experiment_alias_underscores_only"] = sample
+                    adata_vcrs_list.append(adata_vcrs_single)
+
+            adata_vcrs = ad.concat(adata_vcrs_list, join='outer')
+
+            adata_vcrs.obs = adata_vcrs.obs.merge(
+                json_df[['experiment_accession', 'library_strategy', 'sample_title', 
+                        'Sex', 'Biosample ID', 'Population name', 'Superpopulation name', 
+                        'experiment_alias_underscores_only']],
+                on='experiment_alias_underscores_only', 
+                how='left'
+            )
+            adata_vcrs.obs.index = adata_vcrs.obs.index.astype(str)
+
+            adata_vcrs.write_h5ad(adata_combined_path_vcrs)
+        print(f"Combined adata saved to {adata_combined_path_vcrs}")
+
+
+
+    adata_combined_path_reference_genome = os.path.join(sequencing_data_out_base, "adata_reference_genome_combined.h5ad")
+    if not os.path.exists(adata_combined_path_reference_genome):
+        adata_reference_genome_list = []
         for sample in os.listdir(sequencing_data_out_base):
-            adata_vcrs_single_path = os.path.join(sequencing_data_out_base, sample, f"vk_count_out_w{w}_k{k}", "adata_cleaned.h5ad")    # os.path.join(sequencing_data_out_base, sample, f"vk_count_out_w{w}_k{k}", "kb_count_out_vcrs", "counts_unfiltered", "adata.h5ad")
-            if os.path.exists(adata_vcrs_single_path):
-                adata_vcrs_single = ad.read_h5ad(adata_vcrs_single_path)
-                adata_vcrs_single.obs["experiment_alias_underscores_only"] = sample
-                adata_vcrs_list.append(adata_vcrs_single)
+            adata_reference_genome_single_path = os.path.join(sequencing_data_out_base, sample, "kb_count_out_reference_genome", "counts_unfiltered", "adata.h5ad")
+            if os.path.exists(adata_reference_genome_single_path):
+                adata_reference_genome_single = ad.read_h5ad(adata_reference_genome_single_path)
+                adata_reference_genome_single.obs["experiment_alias_underscores_only"] = sample
+                adata_reference_genome_list.append(adata_reference_genome_single)
 
-        adata_vcrs = ad.concat(adata_vcrs_list, join='outer')
+        adata_reference_genome = ad.concat(adata_reference_genome_list, join='outer')
 
-        adata_vcrs.obs = adata_vcrs.obs.merge(
+        adata_reference_genome.obs = adata_reference_genome.obs.merge(
             json_df[['experiment_accession', 'library_strategy', 'sample_title', 
                     'Sex', 'Biosample ID', 'Population name', 'Superpopulation name', 
                     'experiment_alias_underscores_only']],
             on='experiment_alias_underscores_only', 
             how='left'
         )
-        adata_vcrs.obs.index = adata_vcrs.obs.index.astype(str)
+        adata_reference_genome.obs.index = adata_reference_genome.obs.index.astype(str)
 
-        adata_vcrs.write_h5ad(adata_combined_path_vcrs)
-    print(f"Combined adata saved to {adata_combined_path_vcrs}")
+        adata_reference_genome.write_h5ad(adata_combined_path_reference_genome)
+    print(f"Combined adata saved to {adata_combined_path_reference_genome}")
 
 
 
-adata_combined_path_reference_genome = os.path.join(sequencing_data_out_base, "adata_reference_genome_combined.h5ad")
-if not os.path.exists(adata_combined_path_reference_genome):
-    adata_reference_genome_list = []
-    for sample in os.listdir(sequencing_data_out_base):
-        adata_reference_genome_single_path = os.path.join(sequencing_data_out_base, sample, "kb_count_out_reference_genome", "counts_unfiltered", "adata.h5ad")
-        if os.path.exists(adata_reference_genome_single_path):
-            adata_reference_genome_single = ad.read_h5ad(adata_reference_genome_single_path)
-            adata_reference_genome_single.obs["experiment_alias_underscores_only"] = sample
-            adata_reference_genome_list.append(adata_reference_genome_single)
 
-    adata_reference_genome = ad.concat(adata_reference_genome_list, join='outer')
 
-    adata_reference_genome.obs = adata_reference_genome.obs.merge(
-        json_df[['experiment_accession', 'library_strategy', 'sample_title', 
-                'Sex', 'Biosample ID', 'Population name', 'Superpopulation name', 
-                'experiment_alias_underscores_only']],
-        on='experiment_alias_underscores_only', 
-        how='left'
-    )
-    adata_reference_genome.obs.index = adata_reference_genome.obs.index.astype(str)
+# repeat for downsampled
+for downsampled_fraction in downsampled_fractions:
+    if downsampled_fraction == 1.0:
+        continue  # already done above
+    for w_and_k_dict in w_and_k_list_of_dicts:
+        w, k = w_and_k_dict["w"], w_and_k_dict["k"]
+        downsampled_fraction_str = str(downsampled_fraction).replace('.', '_')
+        adata_combined_path_vcrs = os.path.join(sequencing_data_out_base, f"adata_vcrs_combined_w{w}_k{k}_downsampled_{downsampled_fraction_str}.h5ad")
+        if not os.path.exists(adata_combined_path_vcrs):
+            adata_vcrs_list = []
+            for sample in os.listdir(sequencing_data_out_base):
+                adata_vcrs_single_path = os.path.join(sequencing_data_out_base, sample, f"downsampled_{downsampled_fraction_str}", f"vk_count_out_w{w}_k{k}", "adata_cleaned.h5ad")    # os.path.join(sequencing_data_out_base, sample, f"vk_count_out_w{w}_k{k}", "kb_count_out_vcrs", "counts_unfiltered", "adata.h5ad")
+                if os.path.exists(adata_vcrs_single_path):
+                    adata_vcrs_single = ad.read_h5ad(adata_vcrs_single_path)
+                    adata_vcrs_single.obs["experiment_alias_underscores_only"] = sample
+                    adata_vcrs_list.append(adata_vcrs_single)
 
-    adata_reference_genome.write_h5ad(adata_combined_path_reference_genome)
-print(f"Combined adata saved to {adata_combined_path_reference_genome}")
+            adata_vcrs = ad.concat(adata_vcrs_list, join='outer')
+
+            adata_vcrs.obs = adata_vcrs.obs.merge(
+                json_df[['experiment_accession', 'library_strategy', 'sample_title', 
+                        'Sex', 'Biosample ID', 'Population name', 'Superpopulation name', 
+                        'experiment_alias_underscores_only']],
+                on='experiment_alias_underscores_only', 
+                how='left'
+            )
+            adata_vcrs.obs.index = adata_vcrs.obs.index.astype(str)
+
+            adata_vcrs.write_h5ad(adata_combined_path_vcrs)
+        print(f"Combined adata saved to {adata_combined_path_vcrs}")
+
+
+
+    adata_combined_path_reference_genome = os.path.join(sequencing_data_out_base, f"adata_reference_genome_combined_downsampled_{downsampled_fraction_str}.h5ad")
+    if not os.path.exists(adata_combined_path_reference_genome):
+        adata_reference_genome_list = []
+        for sample in os.listdir(sequencing_data_out_base):
+            adata_reference_genome_single_path = os.path.join(sequencing_data_out_base, sample, f"downsampled_{downsampled_fraction_str}", "kb_count_out_reference_genome", "counts_unfiltered", "adata.h5ad")
+            if os.path.exists(adata_reference_genome_single_path):
+                adata_reference_genome_single = ad.read_h5ad(adata_reference_genome_single_path)
+                adata_reference_genome_single.obs["experiment_alias_underscores_only"] = sample
+                adata_reference_genome_list.append(adata_reference_genome_single)
+
+        adata_reference_genome = ad.concat(adata_reference_genome_list, join='outer')
+
+        adata_reference_genome.obs = adata_reference_genome.obs.merge(
+            json_df[['experiment_accession', 'library_strategy', 'sample_title', 
+                    'Sex', 'Biosample ID', 'Population name', 'Superpopulation name', 
+                    'experiment_alias_underscores_only']],
+            on='experiment_alias_underscores_only', 
+            how='left'
+        )
+        adata_reference_genome.obs.index = adata_reference_genome.obs.index.astype(str)
+
+        adata_reference_genome.write_h5ad(adata_combined_path_reference_genome)
+    print(f"Combined adata saved to {adata_combined_path_reference_genome}")

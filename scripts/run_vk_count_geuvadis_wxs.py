@@ -277,7 +277,6 @@ def download_sequencing_total(
             quality_control_fastqs=quality_control_fastqs,
             cut_front=cut_front,
             cut_tail=cut_tail,
-            length=31,
             quality_control_fastqs_out_dir=quality_control_fastqs_out_dir,
             threads=number_of_threads_per_varseek_count_task,
         )
