@@ -32,7 +32,7 @@ experiment_aliases_to_keep = None  # {"E_GEUV_1:HG00377.1.M_120209_6"}  # None t
 
 # reference parameters
 vk_ref_out_parent = os.path.join(data_dir, "vk_ref_out_geuvadis")
-downsampled_fractions = [0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64]  # [1.0]
+downsampled_fractions = [0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1.0]  # None  # None for 1.0
 
 sequences = os.path.join(reference_out_dir, "ensembl_grch37_release113", "Homo_sapiens.GRCh37.cdna.all.fa.gz")
 w_and_k_list_of_dicts = [{"w": 37, "k": 41}]
@@ -340,6 +340,9 @@ def download_sequencing_total(
         for fastq_file in fastq_files:
             os.remove(fastq_file)
 
+if download_only:
+    print("Download only mode - exiting after downloading files.")
+    exit(0)
 
 number_of_tasks = number_of_threads_total / number_of_threads_per_varseek_count_task
 with concurrent.futures.ThreadPoolExecutor(max_workers=number_of_tasks) as executor:
@@ -427,7 +430,6 @@ if 1.0 in downsampled_fractions:
 
         adata_reference_genome.write_h5ad(adata_combined_path_reference_genome)
     print(f"Combined adata saved to {adata_combined_path_reference_genome}")
-
 
 
 

@@ -13,7 +13,7 @@ from varseek.utils import (
 
 RLSRWP_2025_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  #!!! erase
 sys.path.append(RLSRWP_2025_dir)  #!!! erase
-from RLSRWP_2025.seq_utils import perform_analysis
+from RLSRWP_2025.seq_utils import perform_analysis, compare_two_vcfs_with_hap_py
 
 parser = argparse.ArgumentParser(description="Run VarScan on a set of reads and report the time and memory usage")
 
@@ -38,6 +38,7 @@ parser.add_argument("--VARSCAN_INSTALL_PATH", default="VARSCAN_INSTALL_PATH", he
 
 # Just for accuracy analysis
 parser.add_argument("--cosmic_tsv", help="Path to COSMIC tsv")
+parser.add_argument("--cosmic_vcf", help="Path to COSMIC vcf")
 parser.add_argument("--unique_mcrs_df_path", help="Path to unique_mcrs_df_path from notebook 2")
 parser.add_argument("--cosmic_version", default=101, help="COSMIC version. Default: 101")
 
@@ -148,9 +149,14 @@ if skip_accuracy_analysis:
     print("Skipping accuracy analysis")
     sys.exit()
 
-cosmic_df_out = cosmic_tsv.replace(".tsv", "_vcf_info_for_fig2.csv")
-if not os.path.exists(cosmic_df_out):
-    cosmic_df = add_vcf_info_to_cosmic_tsv(cosmic_tsv=cosmic_tsv, reference_genome_fasta=reference_genome_fasta, cosmic_df_out=cosmic_df_out, sequences="cdna", cosmic_version=cosmic_version)
-else:
-    cosmic_df = pd.read_csv(cosmic_df_out)
-perform_analysis(vcf_file=vcf_file, unique_mcrs_df_path=unique_mcrs_df_path, cosmic_df=cosmic_df, plot_output_folder=plot_output_folder, package_name = "varscan", dp_column="INFO_ADP")
+# cosmic_df_out = cosmic_tsv.replace(".tsv", "_vcf_info_for_fig2.csv")
+# if not os.path.exists(cosmic_df_out):
+#     cosmic_df = add_vcf_info_to_cosmic_tsv(cosmic_tsv=cosmic_tsv, reference_genome_fasta=reference_genome_fasta, cosmic_df_out=cosmic_df_out, sequences="cdna", cosmic_version=cosmic_version)
+# else:
+#     cosmic_df = pd.read_csv(cosmic_df_out)
+# perform_analysis(vcf_file=vcf_file, unique_mcrs_df_path=unique_mcrs_df_path, cosmic_df=cosmic_df, plot_output_folder=plot_output_folder, package_name = "varscan", dp_column="INFO_ADP")
+
+package_name = "varscan"
+cosmic_vcf = args.cosmic_vcf
+happy_out = os.path.join(args.out, "hap_py_out", package_name)
+compare_two_vcfs_with_hap_py(ground_truth_vcf=cosmic_vcf, test_vcf=vcf_file, reference_fasta=reference_genome_fasta, output_dir = happy_out, unique_mcrs_df = unique_mcrs_df_path, unique_mcrs_df_out = None, package_name = package_name, dry_run = False)

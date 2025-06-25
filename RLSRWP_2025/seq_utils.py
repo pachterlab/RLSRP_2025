@@ -1,5 +1,6 @@
 """varseek sequencing utilities."""
 import os
+import subprocess
 import scanpy as sc
 import scipy.sparse as sp
 import networkx as nx
@@ -426,7 +427,7 @@ def create_mutated_gene_count_matrix_from_mutation_count_matrix(adata, sum_strat
     return adata_gene
 
 
-def perform_analysis(vcf_file, unique_mcrs_df_path, cosmic_df, plot_output_folder = "plots", unique_mcrs_df_path_out = None, package_name = "tool", dp_column="INFO_DP"):
+def perform_analysis(vcf_file, unique_mcrs_df_path, cosmic_df, plot_output_folder = "plots", unique_mcrs_df_path_out = None, package_name = "tool", dp_column="INFO_DP", use_hap_py = True):
     if not unique_mcrs_df_path_out:
         unique_mcrs_df_path_out = unique_mcrs_df_path
 
@@ -721,3 +722,121 @@ def make_hgvsc_to_dbsnp_dict_from_vep_vcf(vcf_path, total_entries=None):
             rsids_without_valid_hgvsc.add(rsid)
     
     return hgvsc_to_dbsnp_dict, rsids_without_valid_hgvsc
+
+
+
+def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, output_dir = ".", unique_mcrs_df = None, unique_mcrs_df_out = None, package_name = "tool", dry_run = False):
+    ground_truth_vcf_dir = os.path.dirname(ground_truth_vcf)
+    test_vcf_dir = os.path.dirname(test_vcf)
+    reference_fasta_dir = os.path.dirname(reference_fasta)
+    summary_csv_path = os.path.join(output_dir, "happy.summary.csv")
+    if os.path.isfile(summary_csv_path):
+        print(f"Summary file {summary_csv_path} already exists. Skipping hap.py run.")
+    else:
+        os.makedirs(output_dir, exist_ok=True)
+        command = f"sudo docker run --rm -it -ground_truth_vcf_dir {ground_truth_vcf_dir}:{ground_truth_vcf_dir} -v {test_vcf_dir}:{test_vcf_dir} -v {reference_fasta_dir}:{reference_fasta_dir} -v {output_dir}:{output_dir} mgibio/hap.py:v0.3.12 /opt/hap.py/bin/hap.py -r {reference_fasta} --engine=scmp-somatic -o {output_dir} {ground_truth_vcf} {test_vcf_dir}"
+        if dry_run:
+            print("Dry run is true. Run the following command in the terminal, or set dry_run = False:")
+            print(command)
+            return
+        else:
+            subprocess.run(command, shell=True, check=True)
+        
+    summary_df = pd.read_csv(summary_csv_path)
+    summary_df = summary_df.loc[summary_df["Filter"] == "ALL"]
+
+    # Sum total TP, FP, FN across all rows
+    total_tp = summary_df["TRUTH.TP"].sum()
+    total_fp = summary_df["QUERY.FP"].sum()
+    total_fn = summary_df["TRUTH.FN"].sum()
+
+    # Store in dictionary
+    results = {
+        "TP": int(total_tp),
+        "FP": int(total_fp),
+        "FN": int(total_fn),
+    }
+
+    # Save to file
+    happy_counts_path = os.path.join(output_dir, "happy_counts.txt")
+    with open(happy_counts_path, "w") as f:
+        for k, v in results.items():
+            f.write(f"{k}: {v}\n")
+    print(results)
+
+    if isinstance(unique_mcrs_df, str) and unique_mcrs_df.endswith(".csv"):
+        unique_mcrs_df = pd.read_csv(unique_mcrs_df)
+    elif isinstance(unique_mcrs_df, pd.DataFrame):
+        pass
+    elif unique_mcrs_df is None:
+        return
+    else:
+        raise ValueError("unique_mcrs_df must be a path to a CSV file or a pandas DataFrame")
+
+    # Step 1: Load happy.vcf.gz (annotated VCF)
+    happy_vcf = pysam.VariantFile(os.path.join(output_dir, "happy.vcf.gz"))
+
+    # Step 2: Load original VCF (with IDs)
+    orig_vcf = pysam.VariantFile(ground_truth_vcf)
+
+    # Step 3: Build a lookup dictionary from original VCF
+    orig_lookup = {}
+    for rec in orig_vcf.fetch():
+        key = (rec.contig, rec.pos, rec.ref, tuple(rec.alts))
+        orig_lookup[key] = rec.id
+
+    # Step 4: Collect IDs based on TP and FN
+    detected_ids_to_query_dp = {}
+    undetected_ids = set()
+
+    for rec in happy_vcf.fetch():
+        for sample in rec.samples.values():
+            bd = sample.get("BD")
+            key = (rec.contig, rec.pos, rec.ref, tuple(rec.alts))
+            match_id = orig_lookup.get(key)
+            if match_id and bd in {"TP", "FP"}:
+                query_dp = rec.info.get("QUERY_DP")
+                detected_ids_to_query_dp[match_id] = query_dp
+            elif match_id and bd == "FN":
+                undetected_ids.add(match_id)
+
+
+    # TP: in detected and in synthetic
+    unique_mcrs_df[f'TP_{package_name}'] = (
+        unique_mcrs_df['vcrs_id'].isin(detected_ids_to_query_dp) &
+        unique_mcrs_df['included_in_synthetic_reads_mutant']
+    )
+
+    # FN: not in detected but in synthetic
+    unique_mcrs_df[f'FN_{package_name}'] = (
+        ~unique_mcrs_df['vcrs_id'].isin(detected_ids_to_query_dp) &
+        unique_mcrs_df['included_in_synthetic_reads_mutant']
+    )
+
+    # FP: in detected but NOT in synthetic
+    unique_mcrs_df[f'FP_{package_name}'] = (
+        unique_mcrs_df['vcrs_id'].isin(detected_ids_to_query_dp) &
+        ~unique_mcrs_df['included_in_synthetic_reads_mutant']
+    )
+
+    # TN: not in undetected and NOT in synthetic
+    unique_mcrs_df[f'TN_{package_name}'] = (
+        ~unique_mcrs_df['vcrs_id'].isin(detected_ids_to_query_dp) &
+        ~unique_mcrs_df['included_in_synthetic_reads_mutant']
+    )
+
+    print(f"Total TP: {unique_mcrs_df[f'TP_{package_name}'].sum()}")
+    print(f"Total FN: {unique_mcrs_df[f'FN_{package_name}'].sum()}")
+    print(f"Total FP: {unique_mcrs_df[f'FP_{package_name}'].sum()}")
+    print(f"Total TN: {unique_mcrs_df[f'TN_{package_name}'].sum()}")
+
+    # add in DP
+    unique_mcrs_df[f"DP_{package_name}"] = unique_mcrs_df["vcrs_id"].map(detected_ids_to_query_dp)
+
+    if unique_mcrs_df_out is None:
+        if isinstance(unique_mcrs_df, str):
+            unique_mcrs_df_out = unique_mcrs_df
+        else:
+            unique_mcrs_df_out = "unique_mcrs_df_happy.csv"
+    
+    unique_mcrs_df.to_csv(unique_mcrs_df_out, index=False)

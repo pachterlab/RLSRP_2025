@@ -3,6 +3,7 @@ channels:
   - bioconda
   - conda-forge
   - defaults
+channel_priority: strict
 dependencies:
   - python==3.10
   - pip
@@ -16,5 +17,6 @@ dependencies:
   - bioconductor-maftools>=2.6.05
   - gffread>=0.12.7
   - openmm=7.7.0
+  - bcftools=1.21
   - pip:
       - .  # . installs varseek from pyproject.toml
