@@ -726,15 +726,18 @@ def make_hgvsc_to_dbsnp_dict_from_vep_vcf(vcf_path, total_entries=None):
 
 
 def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, output_dir = ".", unique_mcrs_df = None, unique_mcrs_df_out = None, package_name = "tool", dry_run = False):
+    output_prefix = "happy"
+    
     ground_truth_vcf_dir = os.path.dirname(ground_truth_vcf)
     test_vcf_dir = os.path.dirname(test_vcf)
     reference_fasta_dir = os.path.dirname(reference_fasta)
-    summary_csv_path = os.path.join(output_dir, "happy.summary.csv")
+    summary_csv_path = os.path.join(output_dir, f"{output_prefix}.summary.csv")
     if os.path.isfile(summary_csv_path):
         print(f"Summary file {summary_csv_path} already exists. Skipping hap.py run.")
     else:
         os.makedirs(output_dir, exist_ok=True)
-        command = f"sudo docker run --rm -it -ground_truth_vcf_dir {ground_truth_vcf_dir}:{ground_truth_vcf_dir} -v {test_vcf_dir}:{test_vcf_dir} -v {reference_fasta_dir}:{reference_fasta_dir} -v {output_dir}:{output_dir} mgibio/hap.py:v0.3.12 /opt/hap.py/bin/hap.py -r {reference_fasta} --engine=scmp-somatic -o {output_dir} {ground_truth_vcf} {test_vcf_dir}"
+        output_prefix_full = os.path.join(output_dir, output_prefix)
+        command = f"sudo docker run --rm -it -v {ground_truth_vcf_dir}:{ground_truth_vcf_dir} -v {test_vcf_dir}:{test_vcf_dir} -v {reference_fasta_dir}:{reference_fasta_dir} -v {output_dir}:{output_dir} mgibio/hap.py:v0.3.12 /opt/hap.py/bin/hap.py -r {reference_fasta} --engine=scmp-somatic -o {output_prefix_full} {ground_truth_vcf} {test_vcf}"
         if dry_run:
             print("Dry run is true. Run the following command in the terminal, or set dry_run = False:")
             print(command)
@@ -758,7 +761,7 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
     }
 
     # Save to file
-    happy_counts_path = os.path.join(output_dir, "happy_counts.txt")
+    happy_counts_path = os.path.join(output_dir, f"{output_prefix}_counts.txt")
     with open(happy_counts_path, "w") as f:
         for k, v in results.items():
             f.write(f"{k}: {v}\n")
@@ -774,7 +777,7 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
         raise ValueError("unique_mcrs_df must be a path to a CSV file or a pandas DataFrame")
 
     # Step 1: Load happy.vcf.gz (annotated VCF)
-    happy_vcf = pysam.VariantFile(os.path.join(output_dir, "happy.vcf.gz"))
+    happy_vcf = pysam.VariantFile(os.path.join(output_dir, f"{output_prefix}.vcf.gz"))
 
     # Step 2: Load original VCF (with IDs)
     orig_vcf = pysam.VariantFile(ground_truth_vcf)

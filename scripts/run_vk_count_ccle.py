@@ -5,7 +5,7 @@ import pandas as pd
 import anndata as ad
 import concurrent.futures
 import varseek as vk
-from RLSRWP_2025.constants import box_links_dict
+from RLSRWP_2025.constants import box_links_dict, ccle_glioblastoma_rnaseq_experiment_aliases, ccle_glioblastoma_wxs_experiment_aliases, ccle_glioblastoma_wgs_experiment_aliases
 
 # more on the datasets:
     # CCLE:
@@ -21,14 +21,17 @@ sequencing_data_base = "ccle"  # ~11TB
 data_to_use = "rnaseq"  # only used when sequencing_data_base == "ccle"  # options: "rnaseq", "wxs", "wxs_with_corresponding_rnaseq_sample", "rnaseq_and_wxs", "wxs_and_rnaseq"
 technology = "bulk"
 parity = "paired"
-number_of_threads_total = 32  # if too high (e.g., 64), then will not be able to download successfully (server error) - 8 seems like the sweet spot
-number_of_threads_per_varseek_count_task = 32
+number_of_threads_total = 16  # if too high (e.g., 64), then will not be able to download successfully (server error) - 8 seems like the sweet spot
+number_of_threads_per_varseek_count_task = 16
 max_retries = 5
 download_only = False
 delete_fastq_files = False
 overwrite_vk_count = False
 sequencing_data_out_base = os.path.join(data_dir, f"{sequencing_data_base}_data_base")
-experiment_aliases_to_keep = os.path.join(data_dir, "ccle_data_base", f"{sequencing_data_base}_metadata_filtered_experiment_aliases.txt")  # None to use all
+experiment_aliases_to_keep = ccle_glioblastoma_rnaseq_experiment_aliases | ccle_glioblastoma_wxs_experiment_aliases | ccle_glioblastoma_wgs_experiment_aliases  # os.path.join(data_dir, "ccle_data_base", f"{sequencing_data_base}_metadata_filtered_experiment_aliases.txt")  # None to use all
+
+# output
+adata_combined_path = os.path.join(sequencing_data_out_base, "adata_vcrs_glioblastoma.h5ad")
 
 # reference parameters
 vk_ref_out = os.path.join(data_dir, "vk_ref_out")
@@ -96,9 +99,13 @@ else:
 json_url = f"https://www.ebi.ac.uk/ena/portal/api/filereport?accession={ena_project}&result=read_run&fields=study_accession,sample_accession,experiment_accession,run_accession,scientific_name,library_strategy,experiment_title,experiment_alias,fastq_bytes,fastq_ftp,sra_ftp,sample_title&format=json&download=true&limit=0"
 
 if experiment_aliases_to_keep is not None:
-    if os.path.isfile(experiment_aliases_to_keep):
+    if isinstance(experiment_aliases_to_keep, str) and os.path.isfile(experiment_aliases_to_keep) and experiment_aliases_to_keep.endswith(".txt"):
         with open(experiment_aliases_to_keep, 'r', encoding="utf-8") as file:
             experiment_aliases_to_keep = {line.strip() for line in file.readlines()}
+    elif isinstance(experiment_aliases_to_keep, (set, list)):
+        experiment_aliases_to_keep = set(experiment_aliases_to_keep)
+    else:
+        raise ValueError("experiment_aliases_to_keep must be a file path or a set/list of experiment aliases")
 
 # metadata json
 os.makedirs(sequencing_data_out_base, exist_ok=True)
@@ -318,8 +325,6 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=number_of_tasks) as execu
     ]
 
     concurrent.futures.wait(futures)
-
-adata_combined_path = os.path.join(sequencing_data_out_base, "adata_vcrs_50.h5ad")
 
 if not os.path.exists(adata_combined_path):
     adata_list = []
