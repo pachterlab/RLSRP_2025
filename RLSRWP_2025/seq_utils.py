@@ -811,25 +811,25 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
 
     # TP: in detected and in synthetic
     unique_mcrs_df[f'TP_{package_name}'] = (
-        unique_mcrs_df['ID'].isin(detected_ids_to_query_dp) &
+        unique_mcrs_df['VCF_ID'].isin(detected_ids_to_query_dp) &
         unique_mcrs_df['included_in_synthetic_reads_mutant']
     )
 
     # FN: not in detected but in synthetic
     unique_mcrs_df[f'FN_{package_name}'] = (
-        ~unique_mcrs_df['ID'].isin(detected_ids_to_query_dp) &
+        ~unique_mcrs_df['VCF_ID'].isin(detected_ids_to_query_dp) &
         unique_mcrs_df['included_in_synthetic_reads_mutant']
     )
 
     # FP: in detected but NOT in synthetic
     unique_mcrs_df[f'FP_{package_name}'] = (
-        unique_mcrs_df['ID'].isin(detected_ids_to_query_dp) &
+        unique_mcrs_df['VCF_ID'].isin(detected_ids_to_query_dp) &
         ~unique_mcrs_df['included_in_synthetic_reads_mutant']
     )
 
     # TN: not in undetected and NOT in synthetic
     unique_mcrs_df[f'TN_{package_name}'] = (
-        ~unique_mcrs_df['ID'].isin(detected_ids_to_query_dp) &
+        ~unique_mcrs_df['VCF_ID'].isin(detected_ids_to_query_dp) &
         ~unique_mcrs_df['included_in_synthetic_reads_mutant']
     )
 
@@ -839,7 +839,7 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
     print(f"Total TN: {unique_mcrs_df[f'TN_{package_name}'].sum()}")
 
     # add in DP
-    unique_mcrs_df[f"DP_{package_name}"] = unique_mcrs_df["ID"].map(detected_ids_to_query_dp)
+    unique_mcrs_df[f"DP_{package_name}"] = unique_mcrs_df["VCF_ID"].map(detected_ids_to_query_dp)
 
     if unique_mcrs_df_out is not None:
         if not save_unique_mcrs_df:

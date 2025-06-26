@@ -107,6 +107,9 @@ if experiment_aliases_to_keep is not None:
     else:
         raise ValueError("experiment_aliases_to_keep must be a file path or a set/list of experiment aliases")
 
+    # replace "-" with "_"
+    experiment_aliases_to_keep = {alias.replace("-", "_") for alias in experiment_aliases_to_keep}
+
 # metadata json
 os.makedirs(sequencing_data_out_base, exist_ok=True)
 json_path = os.path.join(sequencing_data_out_base, f"{sequencing_data_base}_metadata.json")
@@ -274,7 +277,6 @@ def download_sequencing_total(
             add_hgvs_breakdown_to_adata_var=add_hgvs_breakdown_to_adata_var,
             vcrs_metadata_df=vcrs_metadata_df,
             disable_clean=True,
-            disable_summarize=True,
         )
 
         print(f"Finished vk.count on {sample}")
@@ -292,43 +294,75 @@ def download_sequencing_total(
 
 
 number_of_tasks = number_of_threads_total / number_of_threads_per_varseek_count_task
-with concurrent.futures.ThreadPoolExecutor(max_workers=number_of_tasks) as executor:
-    futures = [
-        executor.submit(
-            download_sequencing_total,
-            record=record,
-            vcrs_index=vcrs_index,
-            vcrs_t2g=vcrs_t2g,
-            technology=technology,
-            parity=parity,
-            sequencing_data_out_base=sequencing_data_out_base,
-            max_retries=max_retries,
-            k=k,
-            quality_control_fastqs=quality_control_fastqs,
-            cut_front=cut_front,
-            cut_tail=cut_tail,
-            reference_genome_index=reference_genome_index,
-            reference_genome_t2g=reference_genome_t2g,
-            qc_against_gene_matrix=qc_against_gene_matrix,
-            save_vcf=save_vcf,
-            vcf_data_csv=vcf_data_csv,
-            variants=variants,
-            seq_id_column=seq_id_column,
-            var_column=var_column,
-            gene_id_column=gene_id_column,
-            variants_usecols=variants_usecols,
-            add_hgvs_breakdown_to_adata_var=add_hgvs_breakdown_to_adata_var,
-            vcrs_metadata_df=vcrs_metadata_df,
-            number_of_threads_per_varseek_count_task=number_of_threads_per_varseek_count_task,
-        )
-        for record in data_list_to_run
-    ]
+# with concurrent.futures.ThreadPoolExecutor(max_workers=number_of_tasks) as executor:
+#     futures = [
+#         executor.submit(
+#             download_sequencing_total,
+#             record=record,
+#             vcrs_index=vcrs_index,
+#             vcrs_t2g=vcrs_t2g,
+#             technology=technology,
+#             parity=parity,
+#             sequencing_data_out_base=sequencing_data_out_base,
+#             max_retries=max_retries,
+#             k=k,
+#             quality_control_fastqs=quality_control_fastqs,
+#             cut_front=cut_front,
+#             cut_tail=cut_tail,
+#             reference_genome_index=reference_genome_index,
+#             reference_genome_t2g=reference_genome_t2g,
+#             qc_against_gene_matrix=qc_against_gene_matrix,
+#             save_vcf=save_vcf,
+#             vcf_data_csv=vcf_data_csv,
+#             variants=variants,
+#             seq_id_column=seq_id_column,
+#             var_column=var_column,
+#             gene_id_column=gene_id_column,
+#             variants_usecols=variants_usecols,
+#             add_hgvs_breakdown_to_adata_var=add_hgvs_breakdown_to_adata_var,
+#             vcrs_metadata_df=vcrs_metadata_df,
+#             number_of_threads_per_varseek_count_task=number_of_threads_per_varseek_count_task,
+#         )
+#         for record in data_list_to_run
+#     ]
 
-    concurrent.futures.wait(futures)
+#     concurrent.futures.wait(futures)
+
+
+for record in data_list_to_run:
+    download_sequencing_total(
+        record=record,
+        vcrs_index=vcrs_index,
+        vcrs_t2g=vcrs_t2g,
+        technology=technology,
+        parity=parity,
+        sequencing_data_out_base=sequencing_data_out_base,
+        max_retries=max_retries,
+        k=k,
+        quality_control_fastqs=quality_control_fastqs,
+        cut_front=cut_front,
+        cut_tail=cut_tail,
+        reference_genome_index=reference_genome_index,
+        reference_genome_t2g=reference_genome_t2g,
+        qc_against_gene_matrix=qc_against_gene_matrix,
+        save_vcf=save_vcf,
+        vcf_data_csv=vcf_data_csv,
+        variants=variants,
+        seq_id_column=seq_id_column,
+        var_column=var_column,
+        gene_id_column=gene_id_column,
+        variants_usecols=variants_usecols,
+        add_hgvs_breakdown_to_adata_var=add_hgvs_breakdown_to_adata_var,
+        vcrs_metadata_df=vcrs_metadata_df,
+        number_of_threads_per_varseek_count_task=number_of_threads_per_varseek_count_task,
+    )
+        
 
 if not os.path.exists(adata_combined_path):
     adata_list = []
     for sample in os.listdir(sequencing_data_out_base):
+        if experiment_aliases_to_keep is not None and sample not in experiment_aliases_to_keep:
+            continue
         if os.path.exists(os.path.join(sequencing_data_out_base, sample, "vk_count_out")):
             adata_single_path = os.path.join(sequencing_data_out_base, sample, "vk_count_out", "kb_count_out_vcrs", "counts_unfiltered", "adata.h5ad")
             adata_single = ad.read_h5ad(adata_single_path)

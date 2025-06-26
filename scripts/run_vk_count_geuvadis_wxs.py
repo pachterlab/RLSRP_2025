@@ -321,7 +321,6 @@ def download_sequencing_total(
                 vcrs_metadata_df=vcrs_metadata_df,
                 disable_fastqpp=True,
                 # disable_clean=True,
-                disable_summarize=True,
             )
 
             print(f"Finished vk.count on {sample}")
@@ -557,7 +556,6 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=number_of_tasks) as execu
 #                 vcrs_metadata_df=vcrs_metadata_df,
 #                 disable_fastqpp=True,
 #                 # disable_clean=True,
-#                 disable_summarize=True,
 #             )
 
 #             print(f"Finished vk.count on {sample}")

@@ -32,7 +32,7 @@ experiment_aliases_to_keep = None  # {"E_GEUV_1:HG00377.1.M_120209_6"}  # None t
 
 # reference parameters
 vk_ref_out_parent = os.path.join(data_dir, "vk_ref_out_geuvadis")
-downsampled_fractions = [0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1.0]  # None  # None for 1.0
+downsampled_fractions = [0.0001, 0.001, 0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1.0]  # None  # None for 1.0
 
 sequences = os.path.join(reference_out_dir, "ensembl_grch37_release113", "Homo_sapiens.GRCh37.cdna.all.fa.gz")
 w_and_k_list_of_dicts = [{"w": 37, "k": 41}]
@@ -306,7 +306,6 @@ def download_sequencing_total(
                     vcrs_metadata_df=vcrs_metadata_df,
                     disable_fastqpp=True,
                     # disable_clean=True,
-                    disable_summarize=True,
                 )
 
                 print(f"Finished vk.count on {sample}")
@@ -385,6 +384,8 @@ if 1.0 in downsampled_fractions:
         if not os.path.exists(adata_combined_path_vcrs):
             adata_vcrs_list = []
             for sample in os.listdir(sequencing_data_out_base):
+                if experiment_aliases_to_keep is not None and sample not in experiment_aliases_to_keep:
+                    continue
                 adata_vcrs_single_path = os.path.join(sequencing_data_out_base, sample, f"vk_count_out_w{w}_k{k}", "adata_cleaned.h5ad")    # os.path.join(sequencing_data_out_base, sample, f"vk_count_out_w{w}_k{k}", "kb_count_out_vcrs", "counts_unfiltered", "adata.h5ad")
                 if os.path.exists(adata_vcrs_single_path):
                     adata_vcrs_single = ad.read_h5ad(adata_vcrs_single_path)
@@ -411,6 +412,8 @@ if 1.0 in downsampled_fractions:
     if not os.path.exists(adata_combined_path_reference_genome):
         adata_reference_genome_list = []
         for sample in os.listdir(sequencing_data_out_base):
+            if experiment_aliases_to_keep is not None and sample not in experiment_aliases_to_keep:
+                continue
             adata_reference_genome_single_path = os.path.join(sequencing_data_out_base, sample, "kb_count_out_reference_genome", "counts_unfiltered", "adata.h5ad")
             if os.path.exists(adata_reference_genome_single_path):
                 adata_reference_genome_single = ad.read_h5ad(adata_reference_genome_single_path)
@@ -445,6 +448,8 @@ for downsampled_fraction in downsampled_fractions:
         if not os.path.exists(adata_combined_path_vcrs):
             adata_vcrs_list = []
             for sample in os.listdir(sequencing_data_out_base):
+                if experiment_aliases_to_keep is not None and sample not in experiment_aliases_to_keep:
+                    continue
                 adata_vcrs_single_path = os.path.join(sequencing_data_out_base, sample, f"downsampled_{downsampled_fraction_str}", f"vk_count_out_w{w}_k{k}", "adata_cleaned.h5ad")    # os.path.join(sequencing_data_out_base, sample, f"vk_count_out_w{w}_k{k}", "kb_count_out_vcrs", "counts_unfiltered", "adata.h5ad")
                 if os.path.exists(adata_vcrs_single_path):
                     adata_vcrs_single = ad.read_h5ad(adata_vcrs_single_path)
@@ -471,6 +476,8 @@ for downsampled_fraction in downsampled_fractions:
     if not os.path.exists(adata_combined_path_reference_genome):
         adata_reference_genome_list = []
         for sample in os.listdir(sequencing_data_out_base):
+            if experiment_aliases_to_keep is not None and sample not in experiment_aliases_to_keep:
+                continue
             adata_reference_genome_single_path = os.path.join(sequencing_data_out_base, sample, f"downsampled_{downsampled_fraction_str}", "kb_count_out_reference_genome", "counts_unfiltered", "adata.h5ad")
             if os.path.exists(adata_reference_genome_single_path):
                 adata_reference_genome_single = ad.read_h5ad(adata_reference_genome_single_path)

@@ -150,7 +150,7 @@ for number_of_variants in number_of_variants_list:
     tmp_dir_specific_run = os.path.join(tmp_dir, f"vk_count_{number_of_variants}_variants")
     os.makedirs(tmp_dir_specific_run, exist_ok=True)
     script_title = f"vk count {number_of_variants} variants {number_of_reads} reads {threads} threads"
-    argparse_flags = f"--index {vk_ref_index_path} --t2g {vk_ref_t2g_path} --technology bulk --threads {threads} --k {k} --out {tmp_dir_specific_run} --disable_summarize --fastqs {fastq_output_path}"  # --disable_fastqpp
+    argparse_flags = f"--index {vk_ref_index_path} --t2g {vk_ref_t2g_path} --technology bulk --threads {threads} --k {k} --out {tmp_dir_specific_run} --fastqs {fastq_output_path}"  # --disable_fastqpp
     print(f"python3 {vk_count_script_path} {argparse_flags}")
     _ = report_time_and_memory_of_script(vk_count_script_path, output_file = output_file_vk_count, argparse_flags = argparse_flags, script_title = script_title)
 

@@ -155,7 +155,6 @@ if not os.path.exists(adata_cleaned_out) or overwrite_vk_count:
         filter_cells_by_min_counts=filter_cells_by_min_counts,
         filter_cells_by_min_genes=filter_cells_by_min_genes,
         cpm_normalization=cpm_normalization,
-        disable_summarize=True
     )
 
 if save_vcf and maf_out is not None:
