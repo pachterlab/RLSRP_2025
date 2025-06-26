@@ -725,7 +725,7 @@ def make_hgvsc_to_dbsnp_dict_from_vep_vcf(vcf_path, total_entries=None):
 
 
 
-def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, output_dir = ".", unique_mcrs_df = None, unique_mcrs_df_out = None, package_name = "tool", dry_run = False):
+def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, output_dir = ".", unique_mcrs_df = None, unique_mcrs_df_out = None, package_name = "tool", dry_run = False, save_unique_mcrs_df = True, use_docker = True):
     output_prefix = "happy"
     
     ground_truth_vcf_dir = os.path.dirname(ground_truth_vcf)
@@ -737,35 +737,40 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
     else:
         os.makedirs(output_dir, exist_ok=True)
         output_prefix_full = os.path.join(output_dir, output_prefix)
-        command = f"sudo docker run --rm -it -v {ground_truth_vcf_dir}:{ground_truth_vcf_dir} -v {test_vcf_dir}:{test_vcf_dir} -v {reference_fasta_dir}:{reference_fasta_dir} -v {output_dir}:{output_dir} mgibio/hap.py:v0.3.12 /opt/hap.py/bin/hap.py -r {reference_fasta} --engine=scmp-somatic -o {output_prefix_full} {ground_truth_vcf} {test_vcf}"
+        if use_docker:
+            command = f"docker run --rm -v {ground_truth_vcf_dir}:{ground_truth_vcf_dir} -v {test_vcf_dir}:{test_vcf_dir} -v {reference_fasta_dir}:{reference_fasta_dir} -v {output_dir}:{output_dir} mgibio/hap.py:v0.3.12 /opt/hap.py/bin/hap.py -r {reference_fasta} --engine=scmp-somatic -o {output_prefix_full} {ground_truth_vcf} {test_vcf}"
+        else:
+            command = f"hap.py -r {reference_fasta} --engine=scmp-somatic -o {output_prefix_full} {ground_truth_vcf} {test_vcf}"
         if dry_run:
             print("Dry run is true. Run the following command in the terminal, or set dry_run = False:")
             print(command)
             return
         else:
             subprocess.run(command, shell=True, check=True)
-        
-    summary_df = pd.read_csv(summary_csv_path)
-    summary_df = summary_df.loc[summary_df["Filter"] == "ALL"]
+                
+    
+    # # might be slightly wrong
+    # summary_df = pd.read_csv(summary_csv_path)
+    # summary_df = summary_df.loc[summary_df["Filter"] == "ALL"]
 
-    # Sum total TP, FP, FN across all rows
-    total_tp = summary_df["TRUTH.TP"].sum()
-    total_fp = summary_df["QUERY.FP"].sum()
-    total_fn = summary_df["TRUTH.FN"].sum()
+    # # Sum total TP, FP, FN across all rows
+    # total_tp = summary_df["TRUTH.TP"].sum()
+    # total_fp = summary_df["QUERY.FP"].sum()
+    # total_fn = summary_df["TRUTH.FN"].sum()
+    
+    # # Store in dictionary
+    # results = {
+    #     "TP": int(total_tp),
+    #     "FP": int(total_fp),
+    #     "FN": int(total_fn),
+    # }
 
-    # Store in dictionary
-    results = {
-        "TP": int(total_tp),
-        "FP": int(total_fp),
-        "FN": int(total_fn),
-    }
-
-    # Save to file
-    happy_counts_path = os.path.join(output_dir, f"{output_prefix}_counts.txt")
-    with open(happy_counts_path, "w") as f:
-        for k, v in results.items():
-            f.write(f"{k}: {v}\n")
-    print(results)
+    # # Save to file
+    # happy_counts_path = os.path.join(output_dir, f"{output_prefix}_counts.txt")
+    # with open(happy_counts_path, "w") as f:
+    #     for k, v in results.items():
+    #         f.write(f"{k}: {v}\n")
+    # print(results)
 
     if isinstance(unique_mcrs_df, str) and unique_mcrs_df.endswith(".csv"):
         unique_mcrs_df = pd.read_csv(unique_mcrs_df)
@@ -806,25 +811,25 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
 
     # TP: in detected and in synthetic
     unique_mcrs_df[f'TP_{package_name}'] = (
-        unique_mcrs_df['vcrs_id'].isin(detected_ids_to_query_dp) &
+        unique_mcrs_df['ID'].isin(detected_ids_to_query_dp) &
         unique_mcrs_df['included_in_synthetic_reads_mutant']
     )
 
     # FN: not in detected but in synthetic
     unique_mcrs_df[f'FN_{package_name}'] = (
-        ~unique_mcrs_df['vcrs_id'].isin(detected_ids_to_query_dp) &
+        ~unique_mcrs_df['ID'].isin(detected_ids_to_query_dp) &
         unique_mcrs_df['included_in_synthetic_reads_mutant']
     )
 
     # FP: in detected but NOT in synthetic
     unique_mcrs_df[f'FP_{package_name}'] = (
-        unique_mcrs_df['vcrs_id'].isin(detected_ids_to_query_dp) &
+        unique_mcrs_df['ID'].isin(detected_ids_to_query_dp) &
         ~unique_mcrs_df['included_in_synthetic_reads_mutant']
     )
 
     # TN: not in undetected and NOT in synthetic
     unique_mcrs_df[f'TN_{package_name}'] = (
-        ~unique_mcrs_df['vcrs_id'].isin(detected_ids_to_query_dp) &
+        ~unique_mcrs_df['ID'].isin(detected_ids_to_query_dp) &
         ~unique_mcrs_df['included_in_synthetic_reads_mutant']
     )
 
@@ -834,12 +839,18 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
     print(f"Total TN: {unique_mcrs_df[f'TN_{package_name}'].sum()}")
 
     # add in DP
-    unique_mcrs_df[f"DP_{package_name}"] = unique_mcrs_df["vcrs_id"].map(detected_ids_to_query_dp)
+    unique_mcrs_df[f"DP_{package_name}"] = unique_mcrs_df["ID"].map(detected_ids_to_query_dp)
 
-    if unique_mcrs_df_out is None:
-        if isinstance(unique_mcrs_df, str):
-            unique_mcrs_df_out = unique_mcrs_df
-        else:
-            unique_mcrs_df_out = "unique_mcrs_df_happy.csv"
+    if unique_mcrs_df_out is not None:
+        if not save_unique_mcrs_df:
+            print("Setting save_unique_mcrs_df to True because unique_mcrs_df_out is provided.")
+            save_unique_mcrs_df = True
     
-    unique_mcrs_df.to_csv(unique_mcrs_df_out, index=False)
+    if save_unique_mcrs_df:
+        if unique_mcrs_df_out is None:
+            if isinstance(unique_mcrs_df, str):
+                unique_mcrs_df_out = unique_mcrs_df
+            else:
+                unique_mcrs_df_out = "unique_mcrs_df_happy.csv"
+        
+        unique_mcrs_df.to_csv(unique_mcrs_df_out, index=False)
