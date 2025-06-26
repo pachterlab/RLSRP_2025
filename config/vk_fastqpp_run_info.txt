@@ -1,9 +1,9 @@
-Time of execution: 2025-06-26 11:19:57
+Time of execution: 2025-06-26 15:12:59
 
 varseek version: 0.1.0
 
 varseek.varseek_fastqpp.fastqpp(
-  fastqs = "/home/jmrich/Desktop/RLSRWP_2025/data/geuvadis_data_base/E_GEUV_1_HG00331_7_M_120219_8",
+  fastqs = "/home/jmrich/Desktop/RLSRWP_2025/data/geuvadis_data_base/E_GEUV_1_HG00097_7_M_120219_2/downsampled_0_001",
   technology = "bulk",
   multiplexed = None,
   parity = "paired",
@@ -34,5 +34,5 @@ varseek.varseek_fastqpp.fastqpp(
   logging_level = None,
   save_logs = False,
   log_out_dir = None,
-  quality_control_fastqs_out_dir = "/home/jmrich/Desktop/RLSRWP_2025/data/geuvadis_data_base/E_GEUV_1_HG00331_7_M_120219_8/fastqs_quality_controlled",
+  quality_control_fastqs_out_dir = "/home/jmrich/Desktop/RLSRWP_2025/data/geuvadis_data_base/E_GEUV_1_HG00097_7_M_120219_2/downsampled_0_001/fastqs_quality_controlled",
 )

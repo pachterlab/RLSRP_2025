@@ -731,6 +731,11 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
     ground_truth_vcf_dir = os.path.dirname(ground_truth_vcf)
     test_vcf_dir = os.path.dirname(test_vcf)
     reference_fasta_dir = os.path.dirname(reference_fasta)
+    
+    reference_fasta_index = f"{reference_fasta}.fai"
+    if not os.path.isfile(reference_fasta_index):
+        subprocess.run(["samtools", "faidx", reference_fasta], check=True)
+
     summary_csv_path = os.path.join(output_dir, f"{output_prefix}.summary.csv")
     if os.path.isfile(summary_csv_path):
         print(f"Summary file {summary_csv_path} already exists. Skipping hap.py run.")
