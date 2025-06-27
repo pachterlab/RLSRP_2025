@@ -5,6 +5,8 @@ box_links_dict = {
     "glioblastoma_smartseq_adata_reference_genome": "https://caltech.box.com/shared/static/5xgfoia9ams7sjvpcoqpdftd7ap5n18n.h5ad",
     "glioblastoma_smartseq_maf": "https://caltech.box.com/shared/static/1el9ifhezs9xrq95e4kqnabljh51n7i6.maf",
     "glioblastoma_smartseq_vcf": "https://caltech.box.com/shared/static/2vjrdwtju2uvnopj1uhozht8z7jyx3ha.vcf",
+    "ccle_glioblastoma_adata_vcrs": "xxxxx",
+    "ccle_glioblastoma_adata_reference_genome": "xxxxx",
     "ccle_50_adata_vcrs": "xxxxx",
     "ccle_50_adata_reference_genome": "xxxxx",
     "geuvadis_index_w27_k31": "https://caltech.box.com/shared/static/rmgidpugpbptorfp7mi0ddcc0r9b5mlr.idx",

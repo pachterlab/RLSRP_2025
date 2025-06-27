@@ -1,5 +1,5 @@
 {
-    "fastqs": "/home/jmrich/Desktop/RLSRWP_2025/data/geuvadis_data_base/E_GEUV_1_HG00097_7_M_120219_2/downsampled_0_001",
+    "fastqs": "/home/jmrich/Desktop/RLSRWP_2025/data/geuvadis_data_base/E_GEUV_1_NA18868_5_M_120131_3/downsampled_0_0001",
     "technology": "bulk",
     "multiplexed": null,
     "parity": "paired",
@@ -30,5 +30,5 @@
     "logging_level": null,
     "save_logs": false,
     "log_out_dir": null,
-    "quality_control_fastqs_out_dir": "/home/jmrich/Desktop/RLSRWP_2025/data/geuvadis_data_base/E_GEUV_1_HG00097_7_M_120219_2/downsampled_0_001/fastqs_quality_controlled"
+    "quality_control_fastqs_out_dir": "/home/jmrich/Desktop/RLSRWP_2025/data/geuvadis_data_base/E_GEUV_1_NA18868_5_M_120131_3/downsampled_0_0001/fastqs_quality_controlled"
 }
