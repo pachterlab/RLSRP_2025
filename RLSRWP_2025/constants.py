@@ -23,6 +23,8 @@ box_links_dict = {
     "geuvadis_adata_vcrs_w47_k51_wxs": "https://caltech.box.com/shared/static/tehbcdbgnx0dvtu27v8h9md8nltu49e8.h5ad",
     "geuvadis_adata_reference_genome": "https://caltech.box.com/shared/static/zfanavkwu6s9b2kl2aw9kr1jhm8de4if.h5ad",
     "geuvadis_adata_reference_genome_wxs": "https://caltech.box.com/shared/static/50nc3r51k5pw48q2pzezsmmmzj00htlz.h5ad",
+    "geuvadis_adata_vcrs_downsampled_0_0001": "https://caltech.box.com/shared/static/v9cqzizmtp98um1wgjzok8psfn27rx5d.h5ad",
+    "geuvadis_adata_vcrs_downsampled_0_001": "https://caltech.box.com/shared/static/vjcwaxaajkz5dtf9kjd4q9468maono6j.h5ad",
     "geuvadis_adata_vcrs_downsampled_0_01": "https://caltech.box.com/shared/static/hfaql0sjh44ig54e09s6enrfcwqvcc01.h5ad",
     "geuvadis_adata_vcrs_downsampled_0_02": "https://caltech.box.com/shared/static/cykcomc03vurvzzatka3rz0enluwlc1r.h5ad",
     "geuvadis_adata_vcrs_downsampled_0_04": "https://caltech.box.com/shared/static/23cxj3hrygg6prxr08b1yjmktq0m5lp0.h5ad",
