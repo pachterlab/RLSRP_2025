@@ -777,7 +777,9 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
     #         f.write(f"{k}: {v}\n")
     # print(results)
 
+    unique_mcrs_df_path = None
     if isinstance(unique_mcrs_df, str) and unique_mcrs_df.endswith(".csv"):
+        unique_mcrs_df_path = unique_mcrs_df
         unique_mcrs_df = pd.read_csv(unique_mcrs_df)
     elif isinstance(unique_mcrs_df, pd.DataFrame):
         pass
@@ -845,6 +847,7 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
 
     # add in DP
     unique_mcrs_df[f"DP_{package_name}"] = unique_mcrs_df["VCF_ID"].map(detected_ids_to_query_dp)
+    unique_mcrs_df[f'mutation_expression_prediction_error_{package_name}'] = unique_mcrs_df[f'DP_{package_name}'] - unique_mcrs_df['number_of_reads_mutant']
 
     if unique_mcrs_df_out is not None:
         if not save_unique_mcrs_df:
@@ -853,8 +856,8 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
     
     if save_unique_mcrs_df:
         if unique_mcrs_df_out is None:
-            if isinstance(unique_mcrs_df, str):
-                unique_mcrs_df_out = unique_mcrs_df
+            if isinstance(unique_mcrs_df_path, str):
+                unique_mcrs_df_out = unique_mcrs_df_path
             else:
                 unique_mcrs_df_out = "unique_mcrs_df_happy.csv"
         
