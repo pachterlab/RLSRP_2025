@@ -1,5 +1,6 @@
 import argparse
 import os
+import subprocess
 import sys
 
 import pysam
@@ -137,13 +138,15 @@ if exons_bed and not os.path.isfile(exons_bed):
 samtools_mpileup_command = f"samtools mpileup -B -f {reference_genome_fasta} {aligned_bam} > {data_pileup_file}"
 if exons_bed:
     samtools_mpileup_command = samtools_mpileup_command.replace(aligned_bam, f"-l {exons_bed} {aligned_bam}")
-print("Running samtools mpileup")
-run_command_with_error_logging(samtools_mpileup_command)
+if not os.path.isfile(data_pileup_file):
+    print("Running samtools mpileup")
+    run_command_with_error_logging(samtools_mpileup_command)
 
 #* Varscan variant calling
 varscan_command = f"java -jar {VARSCAN_INSTALL_PATH} mpileup2cns {data_pileup_file} --output-vcf 1 --variants 1 --min-coverage 1 --min-reads2 1 --min-var-freq 0.01 --strand-filter 0 > {vcf_file}"
-print("Running varscan")
-run_command_with_error_logging(varscan_command)
+if not os.path.isfile(vcf_file):
+    print("Running varscan")
+    run_command_with_error_logging(varscan_command)
 
 if skip_accuracy_analysis:
     print("Skipping accuracy analysis")
@@ -155,6 +158,45 @@ if skip_accuracy_analysis:
 # else:
 #     cosmic_df = pd.read_csv(cosmic_df_out)
 # perform_analysis(vcf_file=vcf_file, unique_mcrs_df_path=unique_mcrs_df_path, cosmic_df=cosmic_df, plot_output_folder=plot_output_folder, package_name = "varscan", dp_column="INFO_ADP")
+
+
+contigs_txt = os.path.join(varscan_output_dir, "contigs.txt")
+header_txt = os.path.join(varscan_output_dir, "header.txt")
+new_header_txt = os.path.join(varscan_output_dir, "new_header.txt")
+output_vcf = os.path.join(varscan_output_dir, "varscan_variants_with_contigs.vcf")
+
+if not os.path.exists(contigs_txt):
+    # Create contigs.txt from reference genome fasta index file
+    if not os.path.exists(f"{reference_genome_fasta}.fai"):
+        subprocess.run(["samtools", "faidx", reference_genome_fasta], check=True)
+    with open(contigs_txt, "w") as f:
+        subprocess.run(
+            ["awk", "{print \"##contig=<ID=\"$1\",length=\"$2\">\"}", f"{reference_genome_fasta}.fai"],
+            stdout=f,
+            check=True
+        )
+
+if not os.path.exists(header_txt):
+    with open(header_txt, "w") as f:
+        subprocess.run(["bcftools", "view", "-h", vcf_file], stdout=f, check=True)
+
+if not os.path.exists(new_header_txt):
+    with open(header_txt) as f:
+        lines = f.readlines()
+    pre_chrom = [line for line in lines if not line.startswith("#CHROM")]
+    chrom_line = [line for line in lines if line.startswith("#CHROM")]
+
+    # Write new header with contigs before #CHROM
+    with open(new_header_txt, "w") as out_f, open(contigs_txt) as f2:
+        out_f.writelines(pre_chrom)
+        out_f.writelines(f2.readlines())
+        out_f.writelines(chrom_line)
+
+if not os.path.exists(output_vcf):
+    # Reheader the VCF file with the new contigs
+    subprocess.run(["bcftools", "reheader", "-h", new_header_txt, "-o", output_vcf, vcf_file], check=True)
+
+vcf_file = output_vcf  # Update vcf_file to the new VCF with contigs
 
 package_name = "varscan"
 cosmic_vcf = args.cosmic_vcf

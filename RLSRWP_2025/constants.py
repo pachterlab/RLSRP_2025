@@ -1,14 +1,14 @@
 box_links_dict = {
-    "cosmic_index": "",  # glioblastoma and CCLE - keep empty to follow COSMIC rules
-    "cosmic_t2g": "",  # glioblastoma and CCLE - keep empty to follow COSMIC rules
+    # "cosmic_index": "",  # glioblastoma and CCLE - keep empty to follow COSMIC rules
+    # "cosmic_t2g": "",  # glioblastoma and CCLE - keep empty to follow COSMIC rules
     "glioblastoma_smartseq_adata_vcrs": "https://caltech.box.com/shared/static/y5pt49dcdsxotkpgccz8a49zk2zjbj28.h5ad",
     "glioblastoma_smartseq_adata_reference_genome": "https://caltech.box.com/shared/static/5xgfoia9ams7sjvpcoqpdftd7ap5n18n.h5ad",
     "glioblastoma_smartseq_maf": "https://caltech.box.com/shared/static/1el9ifhezs9xrq95e4kqnabljh51n7i6.maf",
     "glioblastoma_smartseq_vcf": "https://caltech.box.com/shared/static/2vjrdwtju2uvnopj1uhozht8z7jyx3ha.vcf",
-    "ccle_glioblastoma_adata_vcrs": "xxxxx",
-    "ccle_glioblastoma_adata_reference_genome": "xxxxx",
-    "ccle_50_adata_vcrs": "xxxxx",
-    "ccle_50_adata_reference_genome": "xxxxx",
+    "ccle_glioblastoma_adata_vcrs": "https://caltech.box.com/shared/static/87wm8dqdv0t271p7v275i2mul7ou6rzl.h5ad",
+    # "ccle_glioblastoma_adata_reference_genome": "xxxxx",
+    "ccle_50_adata_vcrs": "https://caltech.box.com/shared/static/jz4etwoq9x1oejqda4nzv5fsmsnwjlbx.h5ad",
+    # "ccle_50_adata_reference_genome": "xxxxx",
     "geuvadis_index_w27_k31": "https://caltech.box.com/shared/static/rmgidpugpbptorfp7mi0ddcc0r9b5mlr.idx",
     "geuvadis_t2g_w27_k31": "https://caltech.box.com/shared/static/fghk7mjcdqmnnll5twh7vc39s5jj287e.txt",
     "geuvadis_index_w37_k41": "https://caltech.box.com/shared/static/gk3bxwsm2huvs5xm6v0lfv2oleatlerc.idx",
