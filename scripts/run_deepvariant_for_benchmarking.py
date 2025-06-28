@@ -72,29 +72,24 @@ BIN_VERSION="1.4.0"
 alignment_folder = f"{deepvariant_output_dir}/alignment"
 out_file_name_prefix = f"{alignment_folder}/sample_"
 aligned_bam = f"{out_file_name_prefix}Aligned.sortedByCoord.out.bam" if not aligned_bam else aligned_bam
+aligned_bam = os.path.realpath(aligned_bam)  # ensure absolute path
 
 output_dir = os.path.join(deepvariant_output_dir, "vcf_output")
 os.makedirs(output_dir, exist_ok=True)
 
 deepvariant_vcf = os.path.join(output_dir, "deepvariant_variants.vcf.gz")  # out.vcf.gz
+deepvariant_vcf = os.path.realpath(deepvariant_vcf)  # ensure absolute path
 
 plot_output_folder = f"{deepvariant_output_dir}/plots"
 os.makedirs(plot_output_folder, exist_ok=True)
 
 intermediate_results = os.path.join(deepvariant_output_dir, "intermediate_results_dir")
+intermediate_results = os.path.realpath(intermediate_results)  # ensure absolute path
 os.makedirs(intermediate_results, exist_ok=True)
 above_min_coverage_bed_file = os.path.join(intermediate_results, "above_min_coverage.bed")  # used in run_bedtools.sh
 
-if reference_genome_fasta[0] == "/":
-    reference_genome_fasta_directory = os.path.dirname(reference_genome_fasta)
-else:
-    reference_genome_fasta_directory = os.getcwd()
-    reference_genome_fasta = os.path.join(reference_genome_fasta_directory, reference_genome_fasta)
-if reference_genome_fasta[0] == "/":
-    deepvariant_model_directory = os.path.dirname(deepvariant_model)
-else:
-    deepvariant_model_directory = os.getcwd()
-    deepvariant_model = os.path.join(deepvariant_model_directory, deepvariant_model)
+reference_genome_fasta = os.path.realpath(reference_genome_fasta)  # ensure absolute path
+deepvariant_model = os.path.realpath(deepvariant_model)  # ensure absolute path
 
 for name, path in {"STAR": STAR}.items():
     if not os.path.exists(path) and not shutil.which(path):
@@ -158,6 +153,8 @@ if not os.path.exists(bam_index_file):
 generate_3x_coverage_files = [
     "docker", "run", "--rm",
     "-v", f"{os.getcwd()}:{os.getcwd()}",
+    "-v", f"{intermediate_results}:{intermediate_results}",
+    "-v", f"{os.path.dirname(aligned_bam)}:{os.path.dirname(aligned_bam)}",
     "-w", os.getcwd(),
     "-it", "quay.io/biocontainers/mosdepth:0.3.1--h4dc83fb_1",
     "mosdepth",
@@ -166,7 +163,8 @@ generate_3x_coverage_files = [
     aligned_bam
 ]
 if min_coverage > 1 and not os.path.isfile(above_min_coverage_bed_file):
-    run_command_with_error_logging(generate_3x_coverage_files)
+    if not os.path.exists(f"{intermediate_results}/data_coverage.per-base.bed.gz"):
+        run_command_with_error_logging(generate_3x_coverage_files)
     run_command_with_error_logging(["bash", f"{scripts_dir}/run_bedtools.sh", intermediate_results, str(min_coverage)])
 
 
@@ -206,7 +204,7 @@ deepvariant_command = [
     "--intermediate_results_dir", intermediate_results
 ]
 
-directories_to_mount = find_independent_parents([reference_genome_fasta_directory, deepvariant_model_directory])
+directories_to_mount = find_independent_parents([os.path.dirname(reference_genome_fasta), os.path.dirname(deepvariant_model), os.path.dirname(aligned_bam), os.path.dirname(deepvariant_vcf), intermediate_results])
 for directory in directories_to_mount:
     deepvariant_command[3:3] = ["-v", f"{directory}:{directory}"]
 
@@ -233,8 +231,8 @@ package_name = "deepvariant"
 cosmic_vcf = args.cosmic_vcf
 happy_out = os.path.join(args.out, "hap_py_out", package_name)
 
-cosmic_vcf = os.path.abspath(cosmic_vcf)
-vcf_file = os.path.abspath(vcf_file)
-reference_genome_fasta = os.path.abspath(reference_genome_fasta)
-happy_out = os.path.abspath(happy_out)
+cosmic_vcf = os.path.realpath(cosmic_vcf)
+vcf_file = os.path.realpath(vcf_file)
+reference_genome_fasta = os.path.realpath(reference_genome_fasta)
+happy_out = os.path.realpath(happy_out)
 compare_two_vcfs_with_hap_py(ground_truth_vcf=cosmic_vcf, test_vcf=vcf_file, reference_fasta=reference_genome_fasta, output_dir = happy_out, unique_mcrs_df = unique_mcrs_df_path, unique_mcrs_df_out = None, package_name = package_name, dry_run = False)

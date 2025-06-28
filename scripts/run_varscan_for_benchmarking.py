@@ -166,9 +166,6 @@ new_header_txt = os.path.join(varscan_output_dir, "new_header.txt")
 output_vcf = os.path.join(varscan_output_dir, "varscan_variants_with_contigs.vcf")
 
 if not os.path.exists(contigs_txt):
-    # Create contigs.txt from reference genome fasta index file
-    if not os.path.exists(f"{reference_genome_fasta}.fai"):
-        subprocess.run(["samtools", "faidx", reference_genome_fasta], check=True)
     with open(contigs_txt, "w") as f:
         subprocess.run(
             ["awk", "{print \"##contig=<ID=\"$1\",length=\"$2\">\"}", f"{reference_genome_fasta}.fai"],
@@ -202,8 +199,8 @@ package_name = "varscan"
 cosmic_vcf = args.cosmic_vcf
 happy_out = os.path.join(args.out, "hap_py_out", package_name)
 
-cosmic_vcf = os.path.abspath(cosmic_vcf)
-vcf_file = os.path.abspath(vcf_file)
-reference_genome_fasta = os.path.abspath(reference_genome_fasta)
-happy_out = os.path.abspath(happy_out)
+cosmic_vcf = os.path.realpath(cosmic_vcf)
+vcf_file = os.path.realpath(vcf_file)
+reference_genome_fasta = os.path.realpath(reference_genome_fasta)
+happy_out = os.path.realpath(happy_out)
 compare_two_vcfs_with_hap_py(ground_truth_vcf=cosmic_vcf, test_vcf=vcf_file, reference_fasta=reference_genome_fasta, output_dir = happy_out, unique_mcrs_df = unique_mcrs_df_path, unique_mcrs_df_out = None, package_name = package_name, dry_run = False)

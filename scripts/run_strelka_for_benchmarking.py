@@ -167,8 +167,8 @@ package_name = "strelka2"
 cosmic_vcf = args.cosmic_vcf
 happy_out = os.path.join(args.out, "hap_py_out", package_name)
 
-cosmic_vcf = os.path.abspath(cosmic_vcf)
-vcf_file = os.path.abspath(vcf_file)
-reference_genome_fasta = os.path.abspath(reference_genome_fasta)
-happy_out = os.path.abspath(happy_out)
+cosmic_vcf = os.path.realpath(cosmic_vcf)
+vcf_file = os.path.realpath(vcf_file)
+reference_genome_fasta = os.path.realpath(reference_genome_fasta)
+happy_out = os.path.realpath(happy_out)
 compare_two_vcfs_with_hap_py(ground_truth_vcf=cosmic_vcf, test_vcf=vcf_file, reference_fasta=reference_genome_fasta, output_dir = happy_out, unique_mcrs_df = unique_mcrs_df_path, unique_mcrs_df_out = None, package_name = package_name, dry_run = False)
