@@ -492,7 +492,7 @@ def perform_analysis(vcf_file, unique_mcrs_df_path, cosmic_df, plot_output_folde
     false_positive_set_including_noncosmic_mutations = false_positive_set.union(noncosmic_mutation_id_set)
 
     FP_including_noncosmic = len(false_positive_set_including_noncosmic_mutations)
-    accuracy, sensitivity, specificity = calculate_sensitivity_specificity(metric_dictionary_reference['TP'], metric_dictionary_reference['TN'], FP_including_noncosmic, metric_dictionary_reference['FN'])
+    accuracy, sensitivity, specificity, precision, f1_score = calculate_sensitivity_specificity(metric_dictionary_reference['TP'], metric_dictionary_reference['TN'], FP_including_noncosmic, metric_dictionary_reference['FN'])
 
     with open(tool_stat_path, "a", encoding="utf-8") as file:
         file.write(f"FP including non-cosmic: {FP_including_noncosmic}\n")

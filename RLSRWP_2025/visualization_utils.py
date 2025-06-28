@@ -258,7 +258,7 @@ def plot_overall_metrics(metric_dict_collection, primary_metrics=("accuracy", "s
     # Customize the plot
     # ax1.set_xlabel("Metrics", fontsize=12)
     # ax1.set_title("Comparison of Metrics Across Tools", fontsize=14)
-    if "accuracy" in primary_metrics or "sensitivity" in primary_metrics or "specificity" in primary_metrics:
+    if any(metric in primary_metrics for metric in ["accuracy", "sensitivity", "specificity", "precision", "recall", "f1_score"]):
         ax1.set_ylim(0, 1.05)
     ax1.set_xticks(x_primary)
     ax1.set_xticklabels(primary_metrics, fontsize=12)
@@ -268,7 +268,7 @@ def plot_overall_metrics(metric_dict_collection, primary_metrics=("accuracy", "s
     if show_p_values or output_file_p_values:
         for metric in primary_metrics:
             margins_of_error[metric] = {}
-            if metric in {"accuracy", "sensitivity", "specificity"}:
+            if metric in {"accuracy", "sensitivity", "specificity", "precision", "recall", "f1_score"}:
                 tool_to_p_value_dict_aggregate = calculate_mcnemar(unique_mcrs_df, tools=groups, metric=metric)  # don't pass output file here because I want output file to include all p-values; and don't do bonferroni here for a similar reason
             elif metric in {"mean_magnitude_expression_error"}:
                 tool_to_p_value_dict_aggregate = calculate_paired_t_test(unique_mcrs_df, column_root="mutation_expression_prediction_error", tools=groups, take_absolute_value=True)
@@ -281,7 +281,7 @@ def plot_overall_metrics(metric_dict_collection, primary_metrics=("accuracy", "s
                     mean_value, margin_of_error = compute_95_confidence_interval_margin_of_error(unique_mcrs_df[f"mutation_expression_prediction_error_{group}"], take_absolute_value=False)
                     margins_of_error[metric][group] = (mean_value, margin_of_error)
             else:
-                raise ValueError(f"Invalid metric for p-value calculation: {metric}. Valid options are 'accuracy', 'sensitivity', 'specificity', 'mean_magnitude_expression_error', 'mean_expression_error'")
+                raise ValueError(f"Invalid metric for p-value calculation: {metric}. Valid options are 'accuracy', 'sensitivity', 'specificity', 'precision', 'recall', 'f1_score', 'mean_magnitude_expression_error', 'mean_expression_error'")
 
             metric_to_tool_to_p_value_dict_of_dicts[metric] = tool_to_p_value_dict_aggregate
 
