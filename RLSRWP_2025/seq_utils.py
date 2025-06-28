@@ -816,27 +816,29 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
                 undetected_ids.add(match_id)
 
 
+    unique_mcrs_df[f"mutation_detected_{package_name}"] = unique_mcrs_df['VCF_ID'].isin(detected_ids_to_query_dp)
+
     # TP: in detected and in synthetic
     unique_mcrs_df[f'TP_{package_name}'] = (
-        unique_mcrs_df['VCF_ID'].isin(detected_ids_to_query_dp) &
+        unique_mcrs_df[f"mutation_detected_{package_name}"] &
         unique_mcrs_df['included_in_synthetic_reads_mutant']
     )
 
-    # FN: not in detected but in synthetic
+    # FN: NOT in detected but in synthetic
     unique_mcrs_df[f'FN_{package_name}'] = (
-        ~unique_mcrs_df['VCF_ID'].isin(detected_ids_to_query_dp) &
+        ~unique_mcrs_df[f"mutation_detected_{package_name}"] &
         unique_mcrs_df['included_in_synthetic_reads_mutant']
     )
 
     # FP: in detected but NOT in synthetic
     unique_mcrs_df[f'FP_{package_name}'] = (
-        unique_mcrs_df['VCF_ID'].isin(detected_ids_to_query_dp) &
+        unique_mcrs_df[f"mutation_detected_{package_name}"] &
         ~unique_mcrs_df['included_in_synthetic_reads_mutant']
     )
 
-    # TN: not in undetected and NOT in synthetic
+    # TN: NOT in detected and NOT in synthetic
     unique_mcrs_df[f'TN_{package_name}'] = (
-        ~unique_mcrs_df['VCF_ID'].isin(detected_ids_to_query_dp) &
+        ~unique_mcrs_df[f"mutation_detected_{package_name}"] &
         ~unique_mcrs_df['included_in_synthetic_reads_mutant']
     )
 
@@ -845,7 +847,7 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
     print(f"Total FP: {unique_mcrs_df[f'FP_{package_name}'].sum()}")
     print(f"Total TN: {unique_mcrs_df[f'TN_{package_name}'].sum()}")
 
-    # add in DP
+    # add in DP - most TPs and FPs will have DP, but not all of them
     unique_mcrs_df[f"DP_{package_name}"] = unique_mcrs_df["VCF_ID"].map(detected_ids_to_query_dp)
     unique_mcrs_df[f'mutation_expression_prediction_error_{package_name}'] = unique_mcrs_df[f'DP_{package_name}'] - unique_mcrs_df['number_of_reads_mutant']
 
