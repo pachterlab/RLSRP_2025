@@ -398,7 +398,7 @@ def calculate_grouped_metric(grouped_df, y_metric, tool):
     return grouped_df
 
 
-def create_stratified_metric_line_plot(unique_mcrs_df, x_stratification, y_metric, tools, bins=None, keep_strict_bins=False, show_sample_size_per_x_value=False, show_p_values=False, show_confidence_intervals=False, bonferroni=True, output_file=None, show=True, output_file_p_values=None, filter_real_negatives=False, log=False):
+def create_stratified_metric_line_plot(unique_mcrs_df, x_stratification, y_metric, tools, bins=None, keep_strict_bins=False, show_sample_size_per_x_value=False, show_p_values=False, show_confidence_intervals=False, bonferroni=True, output_file=None, show=True, output_file_p_values=None, filter_real_negatives=False, log=False, title=None):
     if x_stratification not in unique_mcrs_df.columns:
         raise ValueError(f"Invalid x_stratification: {x_stratification}. Valid options are {unique_mcrs_df.columns.tolist()}")
     
@@ -591,6 +591,9 @@ def create_stratified_metric_line_plot(unique_mcrs_df, x_stratification, y_metri
     plt.ylabel(y_metric.replace("_", " "), fontsize=12)
     # plt.legend(title="Tools")
     plt.grid(axis="y", linestyle="--", alpha=0.7)
+
+    if title:
+        plt.title(title, fontsize=14)
 
     # Show the plot
     plt.tight_layout()
