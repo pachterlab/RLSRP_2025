@@ -28,7 +28,7 @@ download_only = False
 delete_fastq_files = False
 overwrite_vk_count = False
 sequencing_data_out_base = os.path.join(data_dir, f"{sequencing_data_base}_data_base")
-experiment_aliases_to_keep = ccle_glioblastoma_rnaseq_experiment_aliases | ccle_glioblastoma_wxs_experiment_aliases | ccle_glioblastoma_wgs_experiment_aliases  # os.path.join(data_dir, "ccle_data_base", f"{sequencing_data_base}_metadata_filtered_experiment_aliases.txt")  # None to use all
+experiment_aliases_to_keep = ccle_glioblastoma_rnaseq_experiment_aliases  # ccle_glioblastoma_rnaseq_experiment_aliases | ccle_glioblastoma_wxs_experiment_aliases | ccle_glioblastoma_wgs_experiment_aliases  # os.path.join(data_dir, "ccle_data_base", f"{sequencing_data_base}_metadata_filtered_experiment_aliases.txt")  # None to use all
 
 # output
 adata_combined_path = os.path.join(sequencing_data_out_base, "adata_vcrs_glioblastoma.h5ad")
