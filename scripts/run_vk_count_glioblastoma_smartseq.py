@@ -5,7 +5,7 @@ import varseek as vk
 from RLSRWP_2025.constants import box_links_dict
 
 # more on the dataset: 
-#   PRJNA330719 (289.54GB for .sra files, 2.3T for .fastq files): https://www.ncbi.nlm.nih.gov/Traces/study/?query_key=4&WebEnv=MCID_67eecb767ec86104c28549e7&o=acc_s%3Aa  # find the GEO here: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE84465
+#   PRJNA330719 (289.54GB for .sra files, 2.3T for .fastq files): https://www.ncbi.nlm.nih.gov/Traces/study/?acc=PRJNA330719&o=acc_s%3Aa  # find the GEO here: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE84465
 #   PRJNA603103, PRJNA603104: https://www.ncbi.nlm.nih.gov/Traces/study/?acc=PRJNA603101&f=librarysource_s%3An%3Atranscriptomic%3Borganism_s%3An%3Ahomo%2520sapiens%3Bsource_name_sam_ss%3An%3Askin%3Ac%3Binstrument_s%3An&o=instrument_s%3Ad  # find the GEO here: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE144240
 project_name_to_sra_link_dict = {
     "PRJNA330719": "https://www.ncbi.nlm.nih.gov/Traces/study/?query_key=4&WebEnv=MCID_67eecb767ec86104c28549e7&o=acc_s%3Aa",

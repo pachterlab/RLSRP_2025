@@ -7,12 +7,18 @@ out = os.path.join(data_dir, "vk_ref_out")
 reference_out_dir = os.path.join(data_dir, "reference")
 w=47
 k=51
+filters = [
+    "alignment_to_reference:is_not_true",
+    "pseudoaligned_to_reference_despite_not_truly_aligning:is_not_true",
+    "num_distinct_triplets:greater_than=2"
+]
 
 vk.ref(
     variants="cosmic_cmc",
     sequences="cdna",
     w=w,
     k=k,
+    filters=filters,
     out=out,
     reference_out_dir=reference_out_dir,
     gtf=True,  # just so that gtf information gets merged into cosmic df
