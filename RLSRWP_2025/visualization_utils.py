@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from rich.console import Console
-from matplotlib.ticker import FuncFormatter, LogLocator
+from matplotlib.ticker import FuncFormatter, LogLocator, ScalarFormatter
 from scipy import stats
 from scipy.stats import t, ttest_rel
 from statsmodels.stats.contingency_tables import mcnemar
@@ -1147,4 +1147,200 @@ def plot_time_and_memory_benchmarking(df, metric_name, units=None, log_x=False, 
         plt.savefig(output_file)
     if show:
         plt.show()
+    plt.close()
+
+
+def plot_precision_stratified_by_dp(unique_mcrs_df, tools = ("varseek", ), x_min = 1, x_max = 300, x_log = True, title = "Precision vs. DP per Tool", output_file = None):
+    plt.figure(figsize=(10, 6))
+    
+    for tool, color in zip(tools, color_map_20[:len(tools)]):
+        # Get DP column, convert to numeric in case it's not
+        dp_col = pd.to_numeric(unique_mcrs_df[f"DP_{tool}"], errors="coerce")
+        
+        # Get unique DP values < 300
+        dp_values = sorted(
+            dp_col[
+                (dp_col >= x_min) & (dp_col <= x_max)
+            ].dropna().unique()
+        )
+
+
+        precisions = []
+
+        for dp in dp_values:
+            if dp == 0:
+                precisions.append(float("nan"))
+                continue
+            # Select rows where DP == dp
+            mask = dp_col == dp
+            subset = unique_mcrs_df.loc[mask]
+
+            tp = subset[f"TP_{tool}"].sum()
+            fp = subset[f"FP_{tool}"].sum()
+
+            if tp + fp == 0:
+                precision = float("nan")
+            else:
+                precision = tp / (tp + fp)
+
+            precisions.append(precision)
+
+        # Plot
+        plt.plot(
+            dp_values,
+            precisions,
+            # marker="o",
+            label=tool,
+            color=color,
+            alpha=0.8
+        )
+
+    plt.xlabel("Number of variant-containing reads detected (DP)", fontsize=12)
+    plt.ylabel("Precision", fontsize=12)
+    plt.title(title, fontsize=14)
+    plt.ylim(0, 1.05)
+    plt.yticks(np.arange(0, 1.1, 0.1))
+
+    # If you want clean powers-of-2 xticks:
+    start_exp = 0  # int(np.floor(np.log2(x_min)))
+    end_exp = int(np.floor(np.log2(x_max)))
+    xticks = [2**i for i in range(start_exp, end_exp + 1)]
+    plt.xticks(xticks)
+    
+    if x_log:
+        plt.xscale('log', base=2)
+        ax = plt.gca()
+        ax.get_xaxis().set_major_formatter(ScalarFormatter())
+    
+    # plt.legend(title="Tools")
+    plt.grid(axis="both", linestyle="--", alpha=0.3)
+    plt.tight_layout()
+    if output_file:
+        plt.savefig(output_file, bbox_inches='tight')
+    plt.show()
+    plt.close()
+
+
+def plot_recall_stratified_by_depth(unique_mcrs_df, bins, tools=("varseek",), x_log=True, title="Recall vs. Read Depth per Tool", output_file=None):
+    plt.figure(figsize=(10, 6))
+
+    for tool, color in zip(tools, color_map_20[:len(tools)]):
+        recalls = []
+
+        for bin_value in bins:
+            # Filter rows where number_of_reads_mutant == bin
+            subset = unique_mcrs_df.loc[
+                unique_mcrs_df["number_of_reads_mutant"] == bin_value
+            ]
+
+            tp = subset[f"TP_{tool}"].sum()
+            fn = subset[f"FN_{tool}"].sum()
+
+            if tp + fn == 0:
+                recall = float("nan")
+            else:
+                recall = tp / (tp + fn)
+
+            recalls.append(recall)
+
+        # Plot
+        plt.plot(
+            bins,
+            recalls,
+            marker="o",
+            label=tool,
+            color=color,
+            alpha=0.8
+        )
+
+    plt.xlabel("Read depth", fontsize=12)
+    plt.ylabel("Recall", fontsize=12)
+    plt.title(title, fontsize=14)
+    plt.ylim(0, 1.05)
+    plt.yticks(np.arange(0, 1.1, 0.1))
+
+    # If you want clean powers-of-2 xticks:
+    start_exp = int(np.floor(np.log2(min(bins))))
+    end_exp = int(np.floor(np.log2(max(bins))))
+    xticks = [2**i for i in range(start_exp, end_exp + 1)]
+    plt.xticks(xticks)
+
+    if x_log:
+        plt.xscale("log", base=2)
+        ax = plt.gca()
+        ax.get_xaxis().set_major_formatter(ScalarFormatter())
+
+    plt.grid(axis="both", linestyle="--", alpha=0.3)
+    # plt.legend(title="Tools")
+    plt.tight_layout()
+
+    if output_file:
+        plt.savefig(output_file, bbox_inches="tight")
+
+    plt.show()
+    plt.close()
+
+
+def plot_recall_stratified_by_tumor_purity(unique_mcrs_df, bins = (0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), tools=("varseek",), title = "Recall vs. Tumor Purity per Tool", output_file=None):
+    plt.figure(figsize=(10, 6))
+
+    bin_labels = []
+    for i in range(len(bins)-1):
+        bin_min = bins[i]
+        bin_max = bins[i+1]
+        bin_labels.append(f"({bin_min:.1f}-{bin_max:.1f}]")
+
+    for tool, color in zip(tools, color_map_20[:len(tools)]):
+        recalls = []
+        bin_centers = []
+
+        for i in range(len(bins)-1):
+            bin_min = bins[i]
+            bin_max = bins[i+1]
+            bin_center = (bin_min + bin_max) / 2
+            bin_centers.append(bin_center)
+
+            # Filter rows where tumor_purity in (bin_min, bin_max]
+            subset = unique_mcrs_df.loc[
+                (unique_mcrs_df["tumor_purity"] > bin_min) &
+                (unique_mcrs_df["tumor_purity"] <= bin_max)
+            ]
+
+            tp = subset[f"TP_{tool}"].sum()
+            fn = subset[f"FN_{tool}"].sum()
+
+            if tp + fn == 0:
+                recall = float("nan")
+            else:
+                recall = tp / (tp + fn)
+
+            recalls.append(recall)
+
+        # Plot
+        plt.plot(
+            range(len(bin_labels)),  # bin_centers
+            recalls,
+            marker="o",
+            label=tool,
+            color=color,
+            alpha=0.8
+        )
+
+    plt.xlabel("Tumor purity", fontsize=12)
+    plt.ylabel("Recall", fontsize=12)
+    plt.title(title, fontsize=14)
+    plt.ylim(0, 1.05)
+    plt.yticks(np.arange(0, 1.1, 0.1))
+
+    plt.xlim(-0.1, len(bin_labels) - 0.9)
+    plt.xticks(ticks=range(len(bin_labels)), labels=bin_labels, rotation=45)  # # plt.xticks(np.arange(0, 1.1, 0.1))
+
+    plt.grid(axis="both", linestyle="--", alpha=0.3)
+    # plt.legend(title="Tools")
+    plt.tight_layout()
+
+    if output_file:
+        plt.savefig(output_file, bbox_inches="tight")
+
+    plt.show()
     plt.close()
