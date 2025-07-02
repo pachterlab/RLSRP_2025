@@ -802,6 +802,7 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
 
     # Step 4: Collect IDs based on TP and FN
     detected_ids_to_query_dp = {}
+    detected_ids_to_query_ad = {}
     undetected_ids = set()
 
     for rec in happy_vcf.fetch():
@@ -812,6 +813,9 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
             if match_id and bd in {"TP", "FP"}:
                 query_dp = rec.info.get("QUERY_DP")
                 detected_ids_to_query_dp[match_id] = query_dp
+
+                query_ad = rec.info.get("QUERY_AD")
+                detected_ids_to_query_ad[match_id] = query_ad
             elif match_id and bd == "FN":
                 undetected_ids.add(match_id)
 
@@ -849,7 +853,9 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
 
     # add in DP - most TPs and FPs will have DP, but not all of them
     unique_mcrs_df[f"DP_{package_name}"] = unique_mcrs_df["VCF_ID"].map(detected_ids_to_query_dp)
-    unique_mcrs_df[f'mutation_expression_prediction_error_{package_name}'] = unique_mcrs_df[f'DP_{package_name}'] - unique_mcrs_df['number_of_reads_mutant']
+    unique_mcrs_df[f"AD_REF_{package_name}"] = unique_mcrs_df["VCF_ID"].map(lambda x: detected_ids_to_query_ad.get(x, (None, None))[0])
+    unique_mcrs_df[f"AD_ALT_{package_name}"] = unique_mcrs_df["VCF_ID"].map(lambda x: detected_ids_to_query_ad.get(x, (None, None))[1])
+    unique_mcrs_df[f'mutation_expression_prediction_error_{package_name}'] = unique_mcrs_df[f"AD_ALT_{package_name}"] - unique_mcrs_df['number_of_reads_mutant']
 
     if unique_mcrs_df_out is not None:
         if not save_unique_mcrs_df:

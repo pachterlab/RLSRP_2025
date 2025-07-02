@@ -1150,7 +1150,7 @@ def plot_time_and_memory_benchmarking(df, metric_name, units=None, log_x=False, 
     plt.close()
 
 
-def plot_precision_stratified_by_dp(unique_mcrs_df, tools = ("varseek", ), x_min = 1, x_max = 300, x_log = True, title = "Precision vs. DP per Tool", output_file = None):
+def plot_precision_stratified_by_ad_alt(unique_mcrs_df, tools = ("varseek", ), x_min = 1, x_max = 300, x_log = True, title = "Precision vs. DP per Tool", output_file = None):
     plt.figure(figsize=(10, 6))
     
     for tool, color in zip(tools, color_map_20[:len(tools)]):
