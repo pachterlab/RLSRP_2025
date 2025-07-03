@@ -1150,29 +1150,29 @@ def plot_time_and_memory_benchmarking(df, metric_name, units=None, log_x=False, 
     plt.close()
 
 
-def plot_precision_stratified_by_ad_alt(unique_mcrs_df, tools = ("varseek", ), x_min = 1, x_max = 300, x_log = True, title = "Precision vs. DP per Tool", output_file = None):
+def plot_precision_stratified_by_ad_alt(unique_mcrs_df, tools = ("varseek", ), x_min = 1, x_max = 300, x_log = True, title = "Precision vs. AD ALT per Tool", output_file = None):
     plt.figure(figsize=(10, 6))
     
     for tool, color in zip(tools, color_map_20[:len(tools)]):
-        # Get DP column, convert to numeric in case it's not
-        dp_col = pd.to_numeric(unique_mcrs_df[f"DP_{tool}"], errors="coerce")
+        # Get AD_ALT column, convert to numeric in case it's not
+        ad_alt_col = pd.to_numeric(unique_mcrs_df[f"AD_ALT_{tool}"], errors="coerce")
         
-        # Get unique DP values < 300
-        dp_values = sorted(
-            dp_col[
-                (dp_col >= x_min) & (dp_col <= x_max)
+        # Get unique AD_ALT values < 300
+        ad_alt_values = sorted(
+            ad_alt_col[
+                (ad_alt_col >= x_min) & (ad_alt_col <= x_max)
             ].dropna().unique()
         )
 
 
         precisions = []
 
-        for dp in dp_values:
-            if dp == 0:
+        for ad_alt in ad_alt_values:
+            if ad_alt == 0:
                 precisions.append(float("nan"))
                 continue
-            # Select rows where DP == dp
-            mask = dp_col == dp
+            # Select rows where AD_ALT == ad_alt
+            mask = ad_alt_col == ad_alt
             subset = unique_mcrs_df.loc[mask]
 
             tp = subset[f"TP_{tool}"].sum()
@@ -1187,7 +1187,7 @@ def plot_precision_stratified_by_ad_alt(unique_mcrs_df, tools = ("varseek", ), x
 
         # Plot
         plt.plot(
-            dp_values,
+            ad_alt_values,
             precisions,
             # marker="o",
             label=tool,
@@ -1195,7 +1195,7 @@ def plot_precision_stratified_by_ad_alt(unique_mcrs_df, tools = ("varseek", ), x
             alpha=0.8
         )
 
-    plt.xlabel("Number of variant-containing reads detected (DP)", fontsize=12)
+    plt.xlabel("Number of variant-containing reads detected (AD ALT)", fontsize=12)
     plt.ylabel("Precision", fontsize=12)
     plt.title(title, fontsize=14)
     plt.ylim(0, 1.05)
