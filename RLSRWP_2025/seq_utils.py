@@ -761,9 +761,12 @@ def make_normalized_vcf(test_vcf, reference_fasta):
         output_type = "-Oz" if test_vcf.endswith(".vcf.gz") else "-Ov"
         bcftools_normalization_command = ["bcftools", "norm", "-c", "w", "-f", reference_fasta, "-m", "-both", output_type, "-o", test_vcf, test_vcf_unnormalized]
         subprocess.run(bcftools_normalization_command, check=True)
+        subprocess.run(["bcftools", "index", "-f", "-t", test_vcf], check=True)
     
-    if not os.path.isfile(f"{test_vcf}.tbi"):
+    if test_vcf.endswith(".gz") and not os.path.isfile(f"{test_vcf}.tbi"):
         subprocess.run(["bcftools", "index", "-t", test_vcf], check=True)
+
+    return test_vcf
 
 def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, output_dir = ".", unique_mcrs_df = None, unique_mcrs_df_out = None, package_name = "tool", dry_run = False, save_unique_mcrs_df = True, use_docker = True):
     output_prefix = "happy"
@@ -777,10 +780,10 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
         subprocess.run(["samtools", "faidx", reference_fasta], check=True)
 
     if not is_vcf_normalized(test_vcf):
-        make_normalized_vcf(test_vcf, reference_fasta)
+        test_vcf = make_normalized_vcf(test_vcf, reference_fasta)
     
     if not is_vcf_normalized(ground_truth_vcf):
-        make_normalized_vcf(ground_truth_vcf, reference_fasta)
+        ground_truth_vcf = make_normalized_vcf(ground_truth_vcf, reference_fasta)
 
     summary_csv_path = os.path.join(output_dir, f"{output_prefix}.summary.csv")
     if os.path.isfile(summary_csv_path):
@@ -847,9 +850,11 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
         orig_lookup[key] = rec.id
 
     # Step 4: Collect IDs based on TP and FN
-    detected_ids_to_query_dp = {}
-    detected_ids_to_query_ad = {}
+    detected_ids = set()
     undetected_ids = set()
+    detected_ids_to_query_dp = {}  # total depth (ref + alt)
+    detected_ids_to_query_rd = {}  # ref depth
+    detected_ids_to_query_ad = {}  # alt depth
 
     for rec in happy_vcf.fetch():
         for sample in rec.samples.values():
@@ -857,16 +862,25 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
             key = (rec.contig, rec.pos, rec.ref, tuple(rec.alts))
             match_id = orig_lookup.get(key)
             if match_id and bd in {"TP", "FP"}:
+                detected_ids.add(match_id)
                 query_dp = rec.info.get("QUERY_DP")
                 detected_ids_to_query_dp[match_id] = query_dp
 
-                query_ad = rec.info.get("QUERY_AD", (None, None))
-                detected_ids_to_query_ad[match_id] = query_ad
+                ref_count, alt_count = None, None
+                if package_name.lower() != "varscan":  # most tools have AD as (ref_counts, alt_counts)
+                    query_ad = rec.info.get("QUERY_AD", (None, None))
+                    if len(query_ad) == 2:  # length might be >2 if there were multiple ALTs - but because I split these alts upon normalization of the VCF and can't (easily) split the AD entries, it's better just to skip these
+                        ref_count, alt_count = query_ad
+                else:  # varscan has RD as ref_counts and AD as alt_counts
+                    ref_count = rec.info.get("QUERY_RD", None)
+                    alt_count = rec.info.get("QUERY_AD", None)
+                
+                detected_ids_to_query_rd[match_id] = ref_count
+                detected_ids_to_query_ad[match_id] = alt_count
             elif match_id and bd == "FN":
                 undetected_ids.add(match_id)
-
-
-    unique_mcrs_df[f"mutation_detected_{package_name}"] = unique_mcrs_df['VCF_ID'].isin(detected_ids_to_query_dp)
+    
+    unique_mcrs_df[f"mutation_detected_{package_name}"] = unique_mcrs_df['VCF_ID'].isin(detected_ids)
 
     # TP: in detected and in synthetic
     unique_mcrs_df[f'TP_{package_name}'] = (
@@ -899,8 +913,8 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
 
     # add in DP and AD_ALT - most TPs and FPs will have DP and AD_ALT, but not all of them
     unique_mcrs_df[f"DP_{package_name}"] = unique_mcrs_df["VCF_ID"].map(detected_ids_to_query_dp)
-    unique_mcrs_df[f"AD_REF_{package_name}"] = unique_mcrs_df["VCF_ID"].map(lambda x: detected_ids_to_query_ad.get(x, (None, None))[0])
-    unique_mcrs_df[f"AD_ALT_{package_name}"] = unique_mcrs_df["VCF_ID"].map(lambda x: detected_ids_to_query_ad.get(x, (None, None))[1])
+    unique_mcrs_df[f"AD_REF_{package_name}"] = unique_mcrs_df["VCF_ID"].map(detected_ids_to_query_rd)
+    unique_mcrs_df[f"AD_ALT_{package_name}"] = unique_mcrs_df["VCF_ID"].map(detected_ids_to_query_ad)
     unique_mcrs_df[f'mutation_expression_prediction_error_{package_name}'] = unique_mcrs_df[f"AD_ALT_{package_name}"] - unique_mcrs_df['number_of_reads_mutant']
 
     if unique_mcrs_df_out is not None:

@@ -1150,19 +1150,27 @@ def plot_time_and_memory_benchmarking(df, metric_name, units=None, log_x=False, 
     plt.close()
 
 
-def plot_precision_stratified_by_ad_alt(unique_mcrs_df, tools = ("varseek", ), x_min = 1, x_max = 300, x_log = True, title = "Precision vs. AD ALT per Tool", output_file = None):
+def plot_precision_stratified_by_ad_alt(unique_mcrs_df, tools = ("varseek", ), min_occurrences = 100, x_min = 1, x_max = 300, x_log = True, title = "Precision vs. AD ALT per Tool", output_file = None):
     plt.figure(figsize=(10, 6))
     
     for tool, color in zip(tools, color_map_20[:len(tools)]):
         # Get AD_ALT column, convert to numeric in case it's not
         ad_alt_col = pd.to_numeric(unique_mcrs_df[f"AD_ALT_{tool}"], errors="coerce")
         
-        # Get unique AD_ALT values < 300
-        ad_alt_values = sorted(
-            ad_alt_col[
-                (ad_alt_col >= x_min) & (ad_alt_col <= x_max)
-            ].dropna().unique()
-        )
+        # Get unique AD_ALT values < x_max AND that occur at least min_occurrences times
+        # Filter by thresholds
+        filtered = ad_alt_col[
+            (ad_alt_col >= x_min) & (ad_alt_col <= x_max)
+        ].dropna()
+
+        # Count occurrences
+        value_counts = filtered.value_counts()
+
+        # Keep only values appearing at least 100 times
+        values_with_min_count = value_counts[value_counts >= min_occurrences].index
+
+        # Sort them
+        ad_alt_values = sorted(values_with_min_count)
 
 
         precisions = []
