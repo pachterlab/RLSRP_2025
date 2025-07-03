@@ -755,7 +755,7 @@ def make_normalized_vcf(test_vcf, reference_fasta):
     test_vcf_unnormalized = test_vcf
     test_vcf = add_normalized_before_first_dot(test_vcf_unnormalized)
     
-    if os.path.isfile(test_vcf_unnormalized):
+    if os.path.isfile(test_vcf):
         print(f"Normalized file {test_vcf} already exists. Skipping normalization.")
     else:
         output_type = "-Oz" if test_vcf.endswith(".vcf.gz") else "-Ov"
