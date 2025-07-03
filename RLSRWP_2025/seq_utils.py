@@ -860,7 +860,7 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
                 query_dp = rec.info.get("QUERY_DP")
                 detected_ids_to_query_dp[match_id] = query_dp
 
-                query_ad = rec.info.get("QUERY_AD")
+                query_ad = rec.info.get("QUERY_AD", (None, None))
                 detected_ids_to_query_ad[match_id] = query_ad
             elif match_id and bd == "FN":
                 undetected_ids.add(match_id)
@@ -897,7 +897,7 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
     print(f"Total FP: {unique_mcrs_df[f'FP_{package_name}'].sum()}")
     print(f"Total TN: {unique_mcrs_df[f'TN_{package_name}'].sum()}")
 
-    # add in DP - most TPs and FPs will have DP, but not all of them
+    # add in DP and AD_ALT - most TPs and FPs will have DP and AD_ALT, but not all of them
     unique_mcrs_df[f"DP_{package_name}"] = unique_mcrs_df["VCF_ID"].map(detected_ids_to_query_dp)
     unique_mcrs_df[f"AD_REF_{package_name}"] = unique_mcrs_df["VCF_ID"].map(lambda x: detected_ids_to_query_ad.get(x, (None, None))[0])
     unique_mcrs_df[f"AD_ALT_{package_name}"] = unique_mcrs_df["VCF_ID"].map(lambda x: detected_ids_to_query_ad.get(x, (None, None))[1])
