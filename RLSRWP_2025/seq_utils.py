@@ -2,6 +2,7 @@
 import os
 import subprocess
 import scanpy as sc
+import gzip
 import scipy.sparse as sp
 import networkx as nx
 
@@ -724,6 +725,45 @@ def make_hgvsc_to_dbsnp_dict_from_vep_vcf(vcf_path, total_entries=None):
     return hgvsc_to_dbsnp_dict, rsids_without_valid_hgvsc
 
 
+def is_vcf_normalized(vcf_path):
+    """
+    Returns True if the VCF has a header line indicating bcftools norm was run.
+    """
+    # Auto-detect if compressed
+    open_func = gzip.open if vcf_path.endswith(".gz") else open
+
+    with open_func(vcf_path, "rt") as f:
+        for line in f:
+            if line.startswith("##bcftools_normCommand="):
+                return True
+            # Headers always start with ##
+            if not line.startswith("##"):
+                # Stop at the column header line
+                break
+    return False
+
+def add_normalized_before_first_dot(path):
+    dirname, basename = os.path.split(path)
+    if "." in basename:
+        parts = basename.split(".", 1)
+        new_basename = parts[0] + "_normalized." + parts[1]
+    else:
+        new_basename = basename + "_normalized"
+    return os.path.join(dirname, new_basename)
+
+def make_normalized_vcf(test_vcf, reference_fasta):
+    test_vcf_unnormalized = test_vcf
+    test_vcf = add_normalized_before_first_dot(test_vcf_unnormalized)
+    
+    if os.path.isfile(test_vcf_unnormalized):
+        print(f"Normalized file {test_vcf} already exists. Skipping normalization.")
+    else:
+        output_type = "-Oz" if test_vcf.endswith(".vcf.gz") else "-Ov"
+        bcftools_normalization_command = ["bcftools", "norm", "-c", "w", "-f", reference_fasta, "-m", "-both", output_type, "-o", test_vcf, test_vcf_unnormalized]
+        subprocess.run(bcftools_normalization_command, check=True)
+    
+    if not os.path.isfile(f"{test_vcf}.tbi"):
+        subprocess.run(["bcftools", "index", "-t", test_vcf], check=True)
 
 def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, output_dir = ".", unique_mcrs_df = None, unique_mcrs_df_out = None, package_name = "tool", dry_run = False, save_unique_mcrs_df = True, use_docker = True):
     output_prefix = "happy"
@@ -735,6 +775,12 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
     reference_fasta_index = f"{reference_fasta}.fai"
     if not os.path.isfile(reference_fasta_index):
         subprocess.run(["samtools", "faidx", reference_fasta], check=True)
+
+    if not is_vcf_normalized(test_vcf):
+        make_normalized_vcf(test_vcf, reference_fasta)
+    
+    if not is_vcf_normalized(ground_truth_vcf):
+        make_normalized_vcf(ground_truth_vcf, reference_fasta)
 
     summary_csv_path = os.path.join(output_dir, f"{output_prefix}.summary.csv")
     if os.path.isfile(summary_csv_path):
