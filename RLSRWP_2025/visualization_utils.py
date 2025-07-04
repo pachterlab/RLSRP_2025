@@ -1150,75 +1150,124 @@ def plot_time_and_memory_benchmarking(df, metric_name, units=None, log_x=False, 
     plt.close()
 
 
-def plot_precision_stratified_by_ad_alt(unique_mcrs_df, tools = ("varseek", ), min_occurrences = 100, x_min = 1, x_max = 300, x_log = True, title = "Precision vs. AD ALT per Tool", output_file = None):
+def plot_precision_stratified_by_ad_alt(unique_mcrs_df, tools = ("varseek", ), bins = None, min_occurrences = 100, x_min = 1, x_max = 300, x_log = True, title = "Precision vs. AD ALT per Tool", output_file = None):
     plt.figure(figsize=(10, 6))
     
     for tool, color in zip(tools, color_map_20[:len(tools)]):
         # Get AD_ALT column, convert to numeric in case it's not
         ad_alt_col = pd.to_numeric(unique_mcrs_df[f"AD_ALT_{tool}"], errors="coerce")
         
-        # Get unique AD_ALT values < x_max AND that occur at least min_occurrences times
-        # Filter by thresholds
-        filtered = ad_alt_col[
-            (ad_alt_col >= x_min) & (ad_alt_col <= x_max)
-        ].dropna()
+        if bins is None:
+            # Get unique AD_ALT values < x_max AND that occur at least min_occurrences times
+            # Filter by thresholds
+            filtered = ad_alt_col[
+                (ad_alt_col >= x_min) & (ad_alt_col <= x_max)
+            ].dropna()
 
-        # Count occurrences
-        value_counts = filtered.value_counts()
+            # Count occurrences
+            value_counts = filtered.value_counts()
 
-        # Keep only values appearing at least 100 times
-        values_with_min_count = value_counts[value_counts >= min_occurrences].index
+            # Keep only values appearing at least 100 times
+            values_with_min_count = value_counts[value_counts >= min_occurrences].index
 
-        # Sort them
-        ad_alt_values = sorted(values_with_min_count)
+            # Sort them
+            ad_alt_values = sorted(values_with_min_count)
 
 
-        precisions = []
+            precisions = []
 
-        for ad_alt in ad_alt_values:
-            if ad_alt == 0:
-                precisions.append(float("nan"))
-                continue
-            # Select rows where AD_ALT == ad_alt
-            mask = ad_alt_col == ad_alt
-            subset = unique_mcrs_df.loc[mask]
+            for ad_alt in ad_alt_values:
+                if ad_alt == 0:
+                    precisions.append(float("nan"))
+                    continue
+                # Select rows where AD_ALT == ad_alt
+                mask = ad_alt_col == ad_alt
+                subset = unique_mcrs_df.loc[mask]
 
-            tp = subset[f"TP_{tool}"].sum()
-            fp = subset[f"FP_{tool}"].sum()
+                tp = subset[f"TP_{tool}"].sum()
+                fp = subset[f"FP_{tool}"].sum()
 
-            if tp + fp == 0:
-                precision = float("nan")
-            else:
-                precision = tp / (tp + fp)
+                if tp + fp == 0:
+                    precision = float("nan")
+                else:
+                    precision = tp / (tp + fp)
 
-            precisions.append(precision)
+                precisions.append(precision)
 
-        # Plot
-        plt.plot(
-            ad_alt_values,
-            precisions,
-            # marker="o",
-            label=tool,
-            color=color,
-            alpha=0.8
-        )
+            # Plot
+            plt.plot(
+                ad_alt_values,
+                precisions,
+                # marker="o",
+                label=tool,
+                color=color,
+                alpha=0.8
+            )
+        else:
+            # Bin the values (right-exclusive, i.e., [1,2))
+            # 'right=False' makes intervals left-closed, right-open: [start, end)
+            ad_alt_binned = pd.cut(ad_alt_col, bins=bins, right=False, labels=None)
+
+            # Count occurrences per bin
+            value_counts = ad_alt_binned.value_counts().sort_index()
+
+            # Keep bins with at least min_occurrences
+            bins_with_min_count = value_counts[value_counts >= min_occurrences].index
+
+            # Prepare lists
+            precisions = []
+            x_values = []
+
+            for interval in bins_with_min_count:
+                # Select rows in the bin
+                mask = ad_alt_binned == interval
+                subset = unique_mcrs_df.loc[mask]
+
+                tp = subset[f"TP_{tool}"].sum()
+                fp = subset[f"FP_{tool}"].sum()
+
+                if tp + fp == 0:
+                    precision = float("nan")
+                else:
+                    precision = tp / (tp + fp)
+
+                # Use midpoint for x
+                midpoint = (interval.left + interval.right) / 2
+                x_values.append(midpoint)
+                precisions.append(precision)
+
+            plt.plot(
+                x_values,
+                precisions,
+                marker="o",
+                label=tool,
+                color=color,
+                alpha=0.8
+            )
+            plt.xlabel("AD_ALT bin midpoint")
 
     plt.xlabel("Number of variant-containing reads detected (AD ALT)", fontsize=12)
     plt.ylabel("Precision", fontsize=12)
     plt.title(title, fontsize=14)
     plt.ylim(0, 1.05)
-    plt.yticks(np.arange(0, 1.1, 0.1))
+    plt.yticks(np.arange(0, 1.1, 0.1))    
 
-    # If you want clean powers-of-2 xticks:
-    start_exp = 0  # int(np.floor(np.log2(x_min)))
-    end_exp = int(np.floor(np.log2(x_max)))
-    xticks = [2**i for i in range(start_exp, end_exp + 1)]
-    plt.xticks(xticks)
-    
-    if x_log:
-        plt.xscale('log', base=2)
-        ax = plt.gca()
-        ax.get_xaxis().set_major_formatter(ScalarFormatter())
+    if bins is None:
+        # For unbinned plots, add log scale and xticks
+        # If you want clean powers-of-2 xticks:
+        start_exp = 0  # int(np.floor(np.log2(x_min)))
+        end_exp = int(np.floor(np.log2(x_max)))
+        xticks = [2**i for i in range(start_exp, end_exp + 1)]
+        plt.xticks(xticks)
+        if x_log:
+            plt.xscale('log', base=2)
+            ax = plt.gca()
+            ax.get_xaxis().set_major_formatter(ScalarFormatter())
+    else:
+        # # For binned plots, just use default xticks
+        # pass
+        x_labels = [f"[{i.left}, {i.right})" for i in bins_with_min_count]
+        plt.xticks(ticks=x_values, labels=x_labels, rotation=45)
     
     # plt.legend(title="Tools")
     plt.grid(axis="both", linestyle="--", alpha=0.3)
