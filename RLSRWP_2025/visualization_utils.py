@@ -1278,16 +1278,16 @@ def plot_precision_stratified_by_ad_alt(unique_mcrs_df, tools = ("varseek", ), b
     plt.close()
 
 
-def plot_recall_stratified_by_depth(unique_mcrs_df, bins, tools=("varseek",), x_log=True, title="Recall vs. Read Depth per Tool", output_file=None):
+def plot_recall_stratified_by_depth(unique_mcrs_df, depth_values, tools=("varseek",), x_log=True, title="Recall vs. Read Depth per Tool", output_file=None):
     plt.figure(figsize=(10, 6))
 
     for tool, color in zip(tools, color_map_20[:len(tools)]):
         recalls = []
 
-        for bin_value in bins:
-            # Filter rows where number_of_reads_mutant == bin
+        for depth_value in depth_values:
+            # Filter rows where number_of_reads_mutant == depth_value
             subset = unique_mcrs_df.loc[
-                unique_mcrs_df["number_of_reads_mutant"] == bin_value
+                unique_mcrs_df["number_of_reads_mutant"] == depth_value
             ]
 
             tp = subset[f"TP_{tool}"].sum()
@@ -1302,7 +1302,7 @@ def plot_recall_stratified_by_depth(unique_mcrs_df, bins, tools=("varseek",), x_
 
         # Plot
         plt.plot(
-            bins,
+            depth_values,
             recalls,
             marker="o",
             label=tool,
@@ -1317,8 +1317,8 @@ def plot_recall_stratified_by_depth(unique_mcrs_df, bins, tools=("varseek",), x_
     plt.yticks(np.arange(0, 1.1, 0.1))
 
     # If you want clean powers-of-2 xticks:
-    start_exp = int(np.floor(np.log2(min(bins))))
-    end_exp = int(np.floor(np.log2(max(bins))))
+    start_exp = int(np.floor(np.log2(min(depth_values))))
+    end_exp = int(np.floor(np.log2(max(depth_values))))
     xticks = [2**i for i in range(start_exp, end_exp + 1)]
     plt.xticks(xticks)
 
