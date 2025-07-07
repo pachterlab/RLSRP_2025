@@ -606,9 +606,12 @@ def create_stratified_metric_line_plot(unique_mcrs_df, x_stratification, y_metri
     plt.close()
 
 
-def create_benchmarking_legend(tools, outfile=None, show=True):
+def create_benchmarking_legend(tools, color_map = None, outfile=None, show=True):
+    if color_map is None:
+        color_map = color_map_20
+    
     # Define colors
-    colors = color_map_20[: len(tools)]
+    colors = color_map[: len(tools)]
 
     # Create a figure for the legend
     fig, ax = plt.subplots(figsize=(0.1, 0.1))  # Adjust size as needed to change whitespace margins
