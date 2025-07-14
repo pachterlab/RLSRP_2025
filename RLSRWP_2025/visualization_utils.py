@@ -1462,3 +1462,36 @@ def plot_recall_stratified_by_tumor_purity(
 
     plt.show()
     plt.close()
+
+
+def make_upset(unique_mcrs_df, tools = ('varseek', ), number_of_reads_mutant_min = 0, title = None, include_empty_subsets = False, head = None, out_path = None):
+    filtered_unique_mcrs_df = unique_mcrs_df.loc[unique_mcrs_df["included_in_synthetic_reads_mutant"]].copy()
+    
+    if number_of_reads_mutant_min:
+        filtered_unique_mcrs_df = filtered_unique_mcrs_df.loc[filtered_unique_mcrs_df["number_of_reads_mutant"] >= number_of_reads_mutant_min]
+    
+    if head is not None:    # only for debugging
+        if head is True:
+            head = 20
+        filtered_unique_mcrs_df = filtered_unique_mcrs_df.head(head)
+
+    mutations_detected_dict = {}
+    # all_elements = set(filtered_unique_mcrs_df['vcrs_header'].tolist())
+
+    for tool in tools:
+        mutations_detected_dict[tool] = set(filtered_unique_mcrs_df.loc[filtered_unique_mcrs_df[f'mutation_detected_{tool}'], 'vcrs_header'].tolist())
+        # all_elements.update(mutations_detected_dict[tool])
+
+    mutations_detected_data_for_upset = from_contents(mutations_detected_dict)
+    upset = UpSet(mutations_detected_data_for_upset, subset_size='count', show_counts=True, include_empty_subsets = include_empty_subsets)
+    fig = plt.figure(figsize=(8, 6))  # You can adjust the size
+    upset.plot(fig=fig)
+    if title:
+        fig.suptitle(title)
+
+    if out_path is not None:
+        plt.savefig(out_path, bbox_inches='tight')
+    
+    plt.show()
+    
+    # plt.close()
