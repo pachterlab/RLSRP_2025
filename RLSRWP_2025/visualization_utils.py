@@ -607,18 +607,11 @@ def create_stratified_metric_line_plot(unique_mcrs_df, x_stratification, y_metri
     plt.close()
 
 
-def create_benchmarking_legend(tools, color_map = None, outfile=None, show=True):
-    if color_map is None:
-        color_map = color_map_20
-    
-    # Define colors
-    colors = color_map[: len(tools)]
+def create_benchmarking_legend(tools, color_map, outfile=None, show=True):
+    proxies = [plt.Line2D([0], [0], color=color_map[tool], lw=4) for tool in tools]
 
     # Create a figure for the legend
     fig, ax = plt.subplots(figsize=(0.1, 0.1))  # Adjust size as needed to change whitespace margins
-
-    # Create proxy artists (invisible items for the legend)
-    proxies = [plt.Line2D([0], [0], color=color, lw=4) for color in colors]
 
     # Add the legend to the figure
     ax.legend(proxies, tools, title="Legend", loc="center")
