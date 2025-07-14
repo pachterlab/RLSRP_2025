@@ -15,6 +15,7 @@ from matplotlib.ticker import FuncFormatter, LogLocator, ScalarFormatter
 from scipy import stats
 from scipy.stats import t, ttest_rel
 from statsmodels.stats.contingency_tables import mcnemar
+from statsmodels.nonparametric.smoothers_lowess import lowess
 
 console = Console()
 
@@ -1341,64 +1342,121 @@ def plot_recall_stratified_by_depth(unique_mcrs_df, depth_values, tools=("varsee
     plt.close()
 
 
-def plot_recall_stratified_by_tumor_purity(unique_mcrs_df, bins = (0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), tools=("varseek",), title = "Recall vs. Tumor Purity per Tool", output_file=None):
+def plot_recall_stratified_by_tumor_purity(
+    unique_mcrs_df, 
+    bins=(0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1),
+    number_of_reads_mutant = None,
+    number_of_reads_mutant_min = None,
+    fit_lowess = False,
+    lowess_frac = 0.5,
+    tools=("varseek",), 
+    title="Recall vs. Tumor Purity per Tool", 
+    output_file=None
+):
     plt.figure(figsize=(10, 6))
 
-    bin_labels = []
-    for i in range(len(bins)-1):
-        bin_min = bins[i]
-        bin_max = bins[i+1]
-        bin_labels.append(f"({bin_min:.1f}-{bin_max:.1f}]")
+    if number_of_reads_mutant:
+        unique_mcrs_df = unique_mcrs_df.loc[unique_mcrs_df["number_of_reads_mutant"] == number_of_reads_mutant]
+    elif number_of_reads_mutant_min:
+        unique_mcrs_df = unique_mcrs_df.loc[unique_mcrs_df["number_of_reads_mutant"] >= number_of_reads_mutant_min]
 
-    for tool, color in zip(tools, color_map_20[:len(tools)]):
-        recalls = []
-        bin_centers = []
+    if bins is None:
+        for tool, color in zip(tools, color_map_20[:len(tools)]):
+            df = unique_mcrs_df.copy()
+            df["tumor_purity_rounded"] = df["tumor_purity"].round(2)
+            
+            grouped = df.groupby("tumor_purity_rounded").agg(
+                TP_sum=(f"TP_{tool}", "sum"),
+                FN_sum=(f"FN_{tool}", "sum"),
+                count=('tumor_purity_rounded', 'size')
+            ).reset_index()
 
+            grouped = grouped[grouped["count"] >= 2].reset_index(drop=True)
+            
+            grouped["recall"] = grouped["TP_sum"] / (grouped["TP_sum"] + grouped["FN_sum"])
+            
+            # min_recall = grouped["recall"].min()
+            # print("Lowest recall:", min_recall)
+            # min_row = grouped.loc[grouped["recall"].idxmin()]
+            # print(min_row)
+            
+            plt.scatter(
+                grouped["tumor_purity_rounded"],
+                grouped["recall"],
+                label=tool,
+                color=color,
+                alpha=0.8,
+                s=10
+            )
+
+            if fit_lowess:
+                # Fit LOWESS
+                loess_fit = lowess(
+                    grouped["recall"],
+                    grouped["tumor_purity_rounded"],
+                    frac=lowess_frac,  # smoothing parameter: smaller = less smooth
+                    return_sorted=True
+                )
+
+                plt.plot(
+                    loess_fit[:, 0],  # tumor_purity_rounded
+                    loess_fit[:, 1],  # smoothed recall
+                    color=color,
+                    alpha=0.9,
+                    label=f"{tool} LOWESS"
+                )
+        
+        plt.xticks(np.arange(0.1, 1.1, 0.1))
+
+    else:
+        bin_labels = []
         for i in range(len(bins)-1):
             bin_min = bins[i]
             bin_max = bins[i+1]
-            bin_center = (bin_min + bin_max) / 2
-            bin_centers.append(bin_center)
+            bin_labels.append(f"({bin_min:.1f}-{bin_max:.1f}]")
 
-            # Filter rows where tumor_purity in (bin_min, bin_max]
-            subset = unique_mcrs_df.loc[
-                (unique_mcrs_df["tumor_purity"] > bin_min) &
-                (unique_mcrs_df["tumor_purity"] <= bin_max)
-            ]
+        for tool, color in zip(tools, color_map_20[:len(tools)]):
+            recalls = []
+            bin_centers = []
 
-            tp = subset[f"TP_{tool}"].sum()
-            fn = subset[f"FN_{tool}"].sum()
+            for i in range(len(bins)-1):
+                bin_min = bins[i]
+                bin_max = bins[i+1]
+                bin_center = (bin_min + bin_max) / 2
+                bin_centers.append(bin_center)
 
-            if tp + fn == 0:
-                recall = float("nan")
-            else:
-                recall = tp / (tp + fn)
+                subset = unique_mcrs_df.loc[
+                    (unique_mcrs_df["tumor_purity"] > bin_min) &
+                    (unique_mcrs_df["tumor_purity"] <= bin_max)
+                ]
 
-            recalls.append(recall)
+                tp = subset[f"TP_{tool}"].sum()
+                fn = subset[f"FN_{tool}"].sum()
 
-        # Plot
-        plt.plot(
-            range(len(bin_labels)),  # bin_centers
-            recalls,
-            marker="o",
-            label=tool,
-            color=color,
-            alpha=0.8
-        )
+                recall = tp / (tp + fn) if (tp + fn) > 0 else float("nan")
+                recalls.append(recall)
+            
+            plt.plot(
+                range(len(bin_labels)),
+                recalls,
+                marker="o",
+                label=tool,
+                color=color,
+                alpha=0.8
+            )
+
+            plt.xlim(-0.1, len(bin_labels) - 0.9)
+            plt.xticks(ticks=range(len(bin_labels)), labels=bin_labels, rotation=45)
 
     plt.xlabel("Tumor purity", fontsize=12)
     plt.ylabel("Recall", fontsize=12)
     plt.title(title, fontsize=14)
-    plt.ylim(0, 1.05)
+    plt.ylim(-0.05, 1.05)
     plt.yticks(np.arange(0, 1.1, 0.1))
-
-    plt.xlim(-0.1, len(bin_labels) - 0.9)
-    plt.xticks(ticks=range(len(bin_labels)), labels=bin_labels, rotation=45)  # # plt.xticks(np.arange(0, 1.1, 0.1))
-
     plt.grid(axis="both", linestyle="--", alpha=0.3)
-    # plt.legend(title="Tools")
-    plt.tight_layout()
 
+    plt.tight_layout()
+    
     if output_file:
         plt.savefig(output_file, bbox_inches="tight")
 
