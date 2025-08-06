@@ -12,7 +12,7 @@ import json
 import varseek as vk
 from varseek.utils import is_program_installed, vcf_to_dataframe, assign_transcript_and_cds, add_variant_type, reverse_complement, write_to_vcf, add_variant_type_column_to_vcf_derived_df, add_variant_column_to_vcf_derived_df, convert_mutation_cds_locations_to_cdna
 from varseek.constants import mutation_pattern
-from RLSRWP_2025.seq_utils import make_transcript_df_from_gtf, convert_vcf_samples_to_anndata, keep_only_exons_in_vcf, chunks, add_to_hgvsc_dict, make_hgvsc_to_dbsnp_dict_from_vep_vcf
+from RLSRP_2025.seq_utils import make_transcript_df_from_gtf, convert_vcf_samples_to_anndata, keep_only_exons_in_vcf, chunks, add_to_hgvsc_dict, make_hgvsc_to_dbsnp_dict_from_vep_vcf
 
 import logging
 

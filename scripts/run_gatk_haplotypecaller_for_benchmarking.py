@@ -11,9 +11,9 @@ from varseek.utils import (
     add_vcf_info_to_cosmic_tsv,
 )
 
-RLSRWP_2025_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  #!!! erase
-sys.path.append(RLSRWP_2025_dir)  #!!! erase
-from RLSRWP_2025.seq_utils import perform_analysis, compare_two_vcfs_with_hap_py
+RLSRP_2025_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  #!!! erase
+sys.path.append(RLSRP_2025_dir)  #!!! erase
+from RLSRP_2025.seq_utils import perform_analysis, compare_two_vcfs_with_hap_py
 
 parser = argparse.ArgumentParser(description="Run GATK Haplotypecaller on a set of reads and report the time and memory usage")
 

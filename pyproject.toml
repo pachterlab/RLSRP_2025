@@ -3,7 +3,7 @@ requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "RLSRWP_2025"
+name = "RLSRP_2025"
 version = "0.1.0"
 description = "Github repository for the paper 'xxxxxxxxxxxxx'."
 readme = {file = "README.md", content-type = "text/markdown"}
@@ -33,7 +33,7 @@ dependencies = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/pachterlab/RLSRWP_2025"
+"Homepage" = "https://github.com/pachterlab/RLSRP_2025"
 
 [tool.setuptools.packages.find]
 where = ["."]

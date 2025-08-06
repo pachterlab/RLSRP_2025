@@ -1,8 +1,8 @@
-# RLSRWP_2025
+# RLSRP_2025
 
 This is the GitHub repository containing all code for the preprint  
 **Creating Pan-Cancer Transcriptomic Mutational Signatures Using Varseek**  
-by *Joseph Matthew Rich, Laura Luebbert, Delaney Sullivan, Reginaldo Rosa, Samuel Wagenaar, and Lior Pachter*.
+by *Joseph Matthew Rich, Laura Luebbert, Delaney Sullivan, Reginaldo Rosa, and Lior Pachter*.
 
 📄 **Full preprint:** [LINK]  
 
@@ -13,15 +13,15 @@ by *Joseph Matthew Rich, Laura Luebbert, Delaney Sullivan, Reginaldo Rosa, Samue
 To run the code in this repository, follow these steps:
 
 ```sh
-git clone https://github.com/pachterlab/RLSRWP_2025.git
-cd RLSRWP_2025
+git clone https://github.com/pachterlab/RLSRP_2025.git
+cd RLSRP_2025
 ```
 
 We recommend using an environment manager such as conda. Some additional non-python packages must be installed for full functionality. If using conda (recommended), simply run the following:
 
 ```sh
 conda env create -f environment.yml
-conda activate RLSRWP_2025
+conda activate RLSRP_2025
 ```
 
 Otherwise, install these packages manually as-needed (see environment.yml for the list of packages and recommended versions).
@@ -50,9 +50,9 @@ Jupyter notebooks to reproduce each main and supplemental figure, named accordin
   - `S4.ipynb`
   - `S5.ipynb`
 
-### 🛠 RLSRWP_2025
+### 🛠 RLSRP_2025
 Core functions used within the notebooks
-- `RLSRWP_2025/`
+- `RLSRP_2025/`
     - `logger_utils.py`
     - `seq_utils.py`
     - `visualization_utils.py`

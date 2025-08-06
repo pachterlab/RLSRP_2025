@@ -20,7 +20,7 @@ from collections import defaultdict
 import bisect
 import pysam
 
-from RLSRWP_2025.visualization_utils import (
+from RLSRP_2025.visualization_utils import (
     plot_ascending_bar_plot_of_cluster_distances,
     plot_jaccard_bar_plot,
     plot_knn_tissue_frequencies,

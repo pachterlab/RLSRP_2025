@@ -1,4 +1,4 @@
-name: RLSRWP_2025
+name: RLSRP_2025
 channels:
   - bioconda
   - conda-forge

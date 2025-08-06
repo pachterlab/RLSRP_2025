@@ -9,7 +9,7 @@ import concurrent.futures
 from pdb import set_trace as st
 import pandas as pd
 import varseek as vk
-from RLSRWP_2025.constants import box_links_dict
+from RLSRP_2025.constants import box_links_dict
 
 # more on the datasets:
     # CCLE:

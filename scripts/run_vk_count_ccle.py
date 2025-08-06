@@ -5,7 +5,7 @@ import pandas as pd
 import anndata as ad
 import concurrent.futures
 import varseek as vk
-from RLSRWP_2025.constants import box_links_dict, ccle_glioblastoma_rnaseq_experiment_aliases, ccle_glioblastoma_wxs_experiment_aliases, ccle_glioblastoma_wgs_experiment_aliases
+from RLSRP_2025.constants import box_links_dict, ccle_glioblastoma_rnaseq_experiment_aliases, ccle_glioblastoma_wxs_experiment_aliases, ccle_glioblastoma_wgs_experiment_aliases
 
 # more on the datasets:
     # CCLE:

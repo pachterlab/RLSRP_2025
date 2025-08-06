@@ -6,7 +6,7 @@ import re
 import anndata as ad
 import concurrent.futures
 import varseek as vk
-from RLSRWP_2025.constants import box_links_dict
+from RLSRP_2025.constants import box_links_dict
 
 # more on the datasets:
     # Geuvadis: 

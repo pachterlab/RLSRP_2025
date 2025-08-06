@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pysam
 
-RLSRWP_2025_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  #!!! erase
-sys.path.append(RLSRWP_2025_dir)  #!!! erase
-from RLSRWP_2025.seq_utils import perform_analysis, compare_two_vcfs_with_hap_py
+RLSRP_2025_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  #!!! erase
+sys.path.append(RLSRP_2025_dir)  #!!! erase
+from RLSRP_2025.seq_utils import perform_analysis, compare_two_vcfs_with_hap_py
 
 scripts_dir = os.path.dirname(os.path.abspath(__file__))
 

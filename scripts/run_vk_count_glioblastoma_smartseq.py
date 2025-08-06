@@ -2,7 +2,7 @@ import os
 import subprocess
 import sys
 import varseek as vk
-from RLSRWP_2025.constants import box_links_dict
+from RLSRP_2025.constants import box_links_dict
 
 # more on the dataset: 
 #   PRJNA330719 (289.54GB for .sra files, 2.3T for .fastq files): https://www.ncbi.nlm.nih.gov/Traces/study/?acc=PRJNA330719&o=acc_s%3Aa  # find the GEO here: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE84465
