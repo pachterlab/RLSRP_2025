@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
+**/*.bundle
 
 # Mac OS file that stores custom attributes of its containing folder
 .DS_Store
