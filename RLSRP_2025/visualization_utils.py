@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import math
 import numpy as np
 import pandas as pd
+import math
 import seaborn as sns
 from rich.console import Console
 from matplotlib.ticker import FuncFormatter, LogLocator, ScalarFormatter
@@ -1113,10 +1114,14 @@ def plot_time_and_memory_benchmarking(df, metric_name, units=None, log_x=False, 
     elif isinstance(title, str):
         plt.title(title)
     if log_x:
-        plt.xscale("log")
+        if log_x is True:
+            log_x = 10
+        plt.xscale("log", base = log_x)
         plt.gca().xaxis.set_major_formatter(FuncFormatter(lambda x, _: f"{int(x)}"))
     if log_y:
-        plt.yscale("log")
+        if log_y is True:
+            log_y = 10
+        plt.yscale("log", base = log_y)
         min_value = 10 ** math.floor(math.log10(min(df[y_col])))
         max_value = 10 ** math.ceil(math.log10(max(df[y_col])))
         y_ticks = np.logspace(math.log10(min_value), math.log10(max_value), num=int(math.log10(max_value) - math.log10(min_value)) + 1, base=10)
@@ -1147,8 +1152,8 @@ def plot_time_and_memory_benchmarking(df, metric_name, units=None, log_x=False, 
     plt.close()
 
 
-def plot_precision_stratified_by_ad_alt(unique_mcrs_df, tools = ("varseek", ), bins = None, min_occurrences = 100, x_min = 1, x_max = 300, x_log = True, title = "Precision vs. AD ALT per Tool", output_file = None):
-    plt.figure(figsize=(10, 6))
+def plot_precision_stratified_by_ad_alt(unique_mcrs_df, tools = ("varseek", ), bins = None, min_occurrences = 100, x_min = 1, x_max = 300, x_log = True, title = "Precision vs. AD ALT per Tool", output_file = None, figsize = (10, 6)):
+    plt.figure(figsize=figsize)
     
     for tool, color in zip(tools, color_map_20[:len(tools)]):
         # Get AD_ALT column, convert to numeric in case it's not
@@ -1228,9 +1233,14 @@ def plot_precision_stratified_by_ad_alt(unique_mcrs_df, tools = ("varseek", ), b
                 else:
                     precision = tp / (tp + fp)
 
-                # Use midpoint for x
-                midpoint = (interval.left + interval.right) / 2
-                x_values.append(midpoint)
+                # use smaller value for x
+                lower_bound = interval.left
+                x_values.append(lower_bound)
+                
+                # # Use midpoint for x
+                # midpoint = (interval.left + interval.right) / 2
+                # x_values.append(midpoint)
+
                 precisions.append(precision)
 
             plt.plot(
@@ -1262,9 +1272,11 @@ def plot_precision_stratified_by_ad_alt(unique_mcrs_df, tools = ("varseek", ), b
             ax.get_xaxis().set_major_formatter(ScalarFormatter())
     else:
         # # For binned plots, just use default xticks
-        # pass
-        x_labels = [f"[{i.left}, {i.right})" for i in bins_with_min_count]
-        plt.xticks(ticks=x_values, labels=x_labels, rotation=45)
+        x_labels = [
+            f"{int(i.left)}+" if i.right == float("inf") else f"[{int(i.left)}, {int(i.right)})"
+            for i in bins_with_min_count
+        ]
+        plt.xticks(ticks=x_values, labels=x_labels, rotation=90)
     
     # plt.legend(title="Tools")
     plt.grid(axis="both", linestyle="--", alpha=0.3)

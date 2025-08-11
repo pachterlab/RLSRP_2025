@@ -1,12 +1,11 @@
 # RLSRP_2025
 
 This is the GitHub repository containing all code for the preprint  
-**Creating Pan-Cancer Transcriptomic Mutational Signatures Using Varseek**  
+**Reference-based variant detection applied to cancer transcriptomics with varseek**  
 by *Joseph Matthew Rich, Laura Luebbert, Delaney Sullivan, Reginaldo Rosa, and Lior Pachter*.
 
-📄 **Full preprint:** [LINK]  
-
-🔗 **Learn more about Varseek:** [GitHub - pachterlab/varseek](https://github.com/pachterlab/varseek.git)
+**varseek:** [GitHub - pachterlab/varseek](https://github.com/pachterlab/varseek.git)
+**Examples for getting started:** [GitHub - pachterlab/varseek-examples](https://github.com/pachterlab/varseek-examples.git)
 
 ## Getting Started
 
@@ -36,37 +35,11 @@ pip install .
 
 ## Repository Contents
 
-### 📓 Notebooks  
-Jupyter notebooks to reproduce each main and supplemental figure, named according to the figure number. Each notebook can also be run independently in a Google Colab environment.
-- `notebooks/`
-  - `1.ipynb`
-  - `2.ipynb`
-  - `3.ipynb`
-  - `4.ipynb`
-  - `5.ipynb`
-  - `S1.ipynb`
-  - `S2.ipynb`
-  - `S3.ipynb`
-  - `S4.ipynb`
-  - `S5.ipynb`
+`notebook/`: Jupyter notebooks to reproduce each main and supplemental figure, named according to the figure number.
+`RLSRP_2025/`: Core functions used within notebooks
+`scripts/`: Long scripts for generating variant indices or running variant calling with varseek and other tools
 
-### 🛠 RLSRP_2025
-Core functions used within the notebooks
-- `RLSRP_2025/`
-    - `logger_utils.py`
-    - `seq_utils.py`
-    - `visualization_utils.py`
-
-### 🛠 Scripts  
-Python scripts called within some notebooks:
-- `scripts/`
-
-### ⚙️ Environment Setup  
-Files to reproduce the coding environment:
-- `environment.yml` – Conda and pip package dependencies  
-- `requirements.txt` – Pip package dependencies (used within `environment.yml`)  
-
-### License  
+## License  
 This project is licensed under the **BSD 2-Clause License**. See the [LICENSE](LICENSE) file for details.
 
 ---
