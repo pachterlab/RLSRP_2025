@@ -1,7 +1,7 @@
 # RLSRP_2025
 
 This is the GitHub repository containing all code for the preprint  
-**Reference-based variant detection applied to cancer transcriptomics with varseek**  
+**Reference-based variant detection with varseek**  
 by *Joseph Matthew Rich, Laura Luebbert, Delaney Sullivan, Reginaldo Rosa, and Lior Pachter*.
 
 **varseek:** [GitHub - pachterlab/varseek](https://github.com/pachterlab/varseek.git)
