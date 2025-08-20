@@ -5,6 +5,7 @@ This is the GitHub repository containing all code for the preprint
 by *Joseph Matthew Rich, Laura Luebbert, Delaney Sullivan, Reginaldo Rosa, and Lior Pachter*.
 
 **varseek:** [GitHub - pachterlab/varseek](https://github.com/pachterlab/varseek.git)
+
 **Examples for getting started:** [GitHub - pachterlab/varseek-examples](https://github.com/pachterlab/varseek-examples.git)
 
 ## Getting Started
