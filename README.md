@@ -4,6 +4,8 @@ This is the GitHub repository containing all code for the preprint
 **Reference-based variant detection with varseek**  
 by *Joseph Matthew Rich, Laura Luebbert, Delaney Sullivan, Reginaldo Rosa, and Lior Pachter*.
 
+**Preprint:** [Reference-based variant detection with varseek](https://doi.org/10.1101/2025.09.03.674039)
+
 **varseek:** [GitHub - pachterlab/varseek](https://github.com/pachterlab/varseek.git)
 
 **Examples for getting started:** [GitHub - pachterlab/varseek-examples](https://github.com/pachterlab/varseek-examples.git)
